@@ -1,0 +1,7 @@
+{
+  "name": "@aegis/cli",
+  "version": "0.1.0",
+  "private": true,
+  "main": "../../dist/packages/cli/src/index.js",
+  "types": "../../dist/packages/cli/src/index.d.ts"
+}

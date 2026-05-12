@@ -1,0 +1,31 @@
+{
+  "name": "aegis",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AEGIS - Adaptive Edge Governance & Intelligence System",
+  "bin": {
+    "aegis": "dist/packages/cli/src/index.js"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run --coverage=false",
+    "lint": "eslint . && prettier --check .",
+    "format": "prettier --write .",
+    "aegis": "node dist/packages/cli/src/index.js"
+  },
+  "devDependencies": {
+    "@eslint/js": "*",
+    "@types/node": "*",
+    "eslint": "*",
+    "prettier": "*",
+    "typescript": "*",
+    "typescript-eslint": "*",
+    "vitest": "*"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

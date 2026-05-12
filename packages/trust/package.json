@@ -1,0 +1,7 @@
+{
+  "name": "@aegis/trust",
+  "version": "0.1.0",
+  "private": true,
+  "main": "../../dist/packages/trust/src/index.js",
+  "types": "../../dist/packages/trust/src/index.d.ts"
+}
