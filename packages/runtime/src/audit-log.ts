@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'crypto';
 
-/** Audit record categories produced by Phase 1 modules. */
+/** Audit record categories produced by AEGIS modules. */
 export type AuditRecordType =
   | 'ACTUATION_DECISION'
   | 'POLICY_EVALUATION'

@@ -1,6 +1,6 @@
 # AEGIS Math Reference
 
-This document lists the Phase 1 and Phase 2 formulae implemented in code.
+This document lists the implemented formulae implemented in code.
 
 ## Trust
 

@@ -14,7 +14,7 @@ export interface CanonicalEvent {
   readonly sequenceId: string | number;
 }
 
-/** Adapter schema from Phase 1 section 3.2. */
+/** Adapter schema from adapter schema specification. */
 export interface AdapterSpec<TDecoded = unknown> {
   readonly transport: string;
   readonly reliability: Reliability;

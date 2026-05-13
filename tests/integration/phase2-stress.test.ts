@@ -27,7 +27,7 @@ function runtimeEvent(id: string, priority: EventPriority, createdAt: number): R
   return { id, priority, createdAt, kind: id, payload: {} };
 }
 
-describe('Phase 2 stress scenario', () => {
+describe('AEGIS stress scenario', () => {
   it('handles Byzantine anomalies, firmware failures, audit integrity, API anomalies, and priority safety', async () => {
     const byzantineIds = new Set(['d0', 'd1', 'd2', 'd3', 'd4']);
     const fleet = Array.from({ length: 100 }, (_, index) => ({

@@ -1,14 +1,20 @@
 # AEGIS - Adaptive Edge Governance & Intelligence System
 
-AEGIS is a Phase 1 foundation for trusted edge device fleets. This repository implements device
-identity, trust scoring, protocol normalisation, a deterministic local runtime, policy evaluation,
-actuation gating, and append-only audit infrastructure.
+AEGIS is a production-grade foundation for trusted edge device fleets. This repository implements
+device identity, trust scoring, protocol normalisation, deterministic local runtime behavior, policy
+evaluation, actuation gating, fleet intelligence, simulation, authenticated APIs, and append-only
+audit infrastructure.
+
+For the full user and developer reference, read [`learning.md`](./learning.md). It provides
+architecture explanations, flow diagrams, command walkthroughs, package internals, testing strategy,
+and extension guidance.
 
 ## Chosen Stack
 
 - TypeScript on Node 20+ for runtime, orchestration, policy, protocol, trust, and CLI layers.
-- Python is reserved for Phase 2 analytics work; no Python code is required in Phase 1.
-- Local Phase 1 state is in-process for runtime modules and JSON-backed for the CLI harness.
+- Analytics, runtime, orchestration, policy, protocol, trust, and CLI layers are implemented in
+  TypeScript.
+- Local state is in-process for runtime modules and JSON-backed for the CLI harness.
 
 ## Architecture
 
@@ -56,7 +62,7 @@ npm run test
 npm run lint
 ```
 
-After building, the CLI can be exercised directly:
+After building, the CLI can be run directly:
 
 ```bash
 node dist/packages/cli/src/index.js enroll device-1
@@ -79,7 +85,7 @@ Policy dry run example:
 node dist/packages/cli/src/index.js policy check rule.json "{\"trust\":0.2}"
 ```
 
-## Phase 1 Coverage
+## Test Coverage
 
 - Trust identity tests cover Ed25519 generation, certificate issuance, expiry, rotation, Bayesian
   evidence updates, decay, and state-machine guards.
@@ -89,5 +95,5 @@ node dist/packages/cli/src/index.js policy check rule.json "{\"trust\":0.2}"
   shutdown, state store CRUD, reconciliation, actuation gates, rollback, and Merkle audit verification.
 - Policy tests cover parser variants, working memory, each built-in LTL template, and conflict
   resolution safety axioms.
-- Integration tests cover the end-to-end Phase 1 happy path plus quarantined actuation, missing
-  quorum, and reconnect reconciliation.
+- Integration tests cover the end-to-end happy path plus quarantined actuation, missing quorum, and
+  reconnect reconciliation.

@@ -6,7 +6,7 @@ export interface TimeWindow {
 /** Atomic comparison operator. */
 export type Comparator = '==' | '!=' | '>' | '>=' | '<' | '<=' | 'exists' | 'includes';
 
-/** Policy condition AST matching Phase 1 formal syntax. */
+/** Policy condition AST matching policy formal syntax. */
 export type Condition =
   | AtomCondition
   | NotCondition

@@ -16,7 +16,7 @@ export const T_MAX_CERT_AGE_MS = 1000 * 60 * 60 * 24 * 90;
 /** Default certificate validity for development fleet certificates. */
 export const T_CERT_VALIDITY_MS = 1000 * 60 * 60 * 24 * 365;
 
-/** Stable-sensor temporal decay constant from the Phase 1 spec example. */
+/** Stable-sensor temporal decay constant from the trust specification example. */
 export const LAMBDA_STABLE_SENSOR = 0.001;
 
 /** Default stale-data freshness bound for policy checks in milliseconds. */

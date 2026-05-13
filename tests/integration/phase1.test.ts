@@ -23,7 +23,7 @@ import {
   getPermittedActions,
 } from '../../packages/trust/src';
 
-describe('Phase 1 integration', () => {
+describe('AEGIS integration', () => {
   it('enrolls, attests, receives sensor data, evaluates policy, approves actuation, and verifies audit', () => {
     const { identity } = createDeviceIdentity('device-1', ['sense', 'actuate'], ['cell-a']);
     expect(identity.pk).toContain('BEGIN PUBLIC KEY');

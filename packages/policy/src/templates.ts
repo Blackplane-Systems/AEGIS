@@ -38,7 +38,7 @@ export const STALE_DATA_LOCKOUT_TEMPLATE: Rule = {
   then: { kind: 'BLOCK', reason: 'stale data lockout' },
 };
 
-/** Built-in pre-compiled Phase 1 LTL rules. */
+/** Built-in pre-compiled LTL rules. */
 export const BUILT_IN_LTL_TEMPLATES: readonly Rule[] = [
   VALVE_SAFETY_TEMPLATE,
   ACCESS_CONTROL_TEMPLATE,

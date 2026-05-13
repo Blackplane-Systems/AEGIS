@@ -1,7 +1,7 @@
 # Reference Inclusion Review: ProtocolBridge IoT Gateway
 
 The repository at `D:\Vibe code\iot gateway` was reviewed for features that fit AEGIS without
-changing the Phase 1/2 architecture. Its Python/FastAPI implementation was not copied directly;
+changing the production architecture. Its Python/FastAPI implementation was not copied directly;
 the useful behavior was reimplemented as AEGIS-native TypeScript modules.
 
 ## Included

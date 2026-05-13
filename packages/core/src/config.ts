@@ -56,7 +56,7 @@ export interface PolicyConfig {
   readonly strictSignedRules: boolean;
 }
 
-/** Complete Phase 1 configuration object. */
+/** Complete AEGIS configuration object. */
 export interface AegisConfig {
   readonly trustWeights: TrustWeights;
   readonly decayLambdaByDeviceClass: Record<DeviceClass, number>;
@@ -76,7 +76,7 @@ const DEFAULT_TRUST_WEIGHTS: TrustWeights = {
   runtimeHealth: 0.1,
 };
 
-/** Default Phase 1 operator configuration. */
+/** Default operator configuration. */
 export const DEFAULT_AEGIS_CONFIG: AegisConfig = {
   trustWeights: DEFAULT_TRUST_WEIGHTS,
   decayLambdaByDeviceClass: {
