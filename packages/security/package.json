@@ -1,0 +1,7 @@
+{
+  "name": "@aegis/security",
+  "version": "0.1.0",
+  "private": true,
+  "main": "../../dist/packages/security/src/index.js",
+  "types": "../../dist/packages/security/src/index.d.ts"
+}

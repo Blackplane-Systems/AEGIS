@@ -42,7 +42,11 @@ export class RetePolicyEngine {
   public constructor(
     private readonly rules: readonly Rule[],
     private readonly config: AegisConfig = createAegisConfig(),
-  ) {}
+  ) {
+    if (config.policy.strictSignedRules && rules.some((rule) => rule.signature === undefined)) {
+      throw new Error('STRICT policy mode rejects unsigned rules');
+    }
+  }
 
   /** Adds a fact to working memory. */
   public addFact(fact: Record<string, unknown>): void {

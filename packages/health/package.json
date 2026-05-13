@@ -1,0 +1,7 @@
+{
+  "name": "@aegis/health",
+  "version": "0.1.0",
+  "private": true,
+  "main": "../../dist/packages/health/src/index.js",
+  "types": "../../dist/packages/health/src/index.d.ts"
+}

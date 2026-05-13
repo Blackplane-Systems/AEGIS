@@ -5,7 +5,6 @@ dist/
 tmp-cli-e2e/
 coverage/
 progress.md
-docs/
 *.conversation
 *.chat.md
 *.transcript.md

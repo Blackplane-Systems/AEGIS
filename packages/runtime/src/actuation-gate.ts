@@ -1,5 +1,6 @@
 import { AegisConfig, createAegisConfig } from '../../core/src';
 import { EventPriority } from './priorities';
+import { SafetyEnvelope } from './safety-envelope';
 
 /** Criticality class for actuation commands. */
 export type Criticality = 'NORMAL' | 'CRITICAL';
@@ -24,6 +25,8 @@ export interface ActuationRequest {
   readonly issuedAt: number;
   readonly reversibility: Reversibility;
   readonly inverse?: Omit<ActuationRequest, 'inverse'>;
+  readonly continuousCurrent?: number;
+  readonly continuousDesired?: number;
 }
 
 /** Gate decision with independent gate status. */
@@ -35,8 +38,10 @@ export interface ActuationDecision {
     readonly rate: boolean;
     readonly conflict: boolean;
     readonly quorum: boolean;
+    readonly cbf: boolean;
   };
   readonly quorumRequired: number;
+  readonly projectedCommand?: number;
 }
 
 /** Rollback result for a stored actuation. */
@@ -55,7 +60,10 @@ export class ActuationSafetyGate {
   private readonly cooldowns = new Map<string, number>();
   private readonly approvedActs = new Map<string, ActuationRequest>();
 
-  public constructor(private readonly config: AegisConfig = createAegisConfig()) {}
+  public constructor(
+    private readonly config: AegisConfig = createAegisConfig(),
+    private readonly safetyEnvelope?: SafetyEnvelope,
+  ) {}
 
   /** Returns the configured quorum threshold q > (n + f) / 2. */
   public quorumRequired(
@@ -73,13 +81,23 @@ export class ActuationSafetyGate {
       rate: this.rateGate(actuation),
       conflict: this.conflictGate(actuation),
       quorum: this.quorumGate(actuation),
+      cbf: this.cbfGate(actuation),
     };
     const approved = Object.values(gates).every(Boolean);
     if (approved) {
       this.cooldowns.set(this.cooldownKey(actuation), actuation.issuedAt);
       this.approvedActs.set(actuation.id, actuation);
     }
-    return { approved, gates, quorumRequired: this.quorumRequired() };
+    const projection =
+      actuation.continuousCurrent !== undefined &&
+      actuation.continuousDesired !== undefined &&
+      this.safetyEnvelope !== undefined
+        ? this.safetyEnvelope.check(actuation.continuousCurrent, actuation.continuousDesired)
+            .projected
+        : undefined;
+    return projection === undefined
+      ? { approved, gates, quorumRequired: this.quorumRequired() }
+      : { approved, gates, quorumRequired: this.quorumRequired(), projectedCommand: projection };
   }
 
   /** Trust gate. */
@@ -111,6 +129,19 @@ export class ActuationSafetyGate {
       return true;
     }
     return actuation.approvals.length >= this.quorumRequired();
+  }
+
+  /** CBF gate for CRITICAL continuous-valued commands. */
+  public cbfGate(actuation: ActuationRequest): boolean {
+    if (
+      actuation.criticality !== 'CRITICAL' ||
+      this.safetyEnvelope === undefined ||
+      actuation.continuousCurrent === undefined ||
+      actuation.continuousDesired === undefined
+    ) {
+      return true;
+    }
+    return this.safetyEnvelope.check(actuation.continuousCurrent, actuation.continuousDesired).safe;
   }
 
   /** Looks up inverse action, re-issues it with ROLLBACK priority, or escalates irreversible actions. */
