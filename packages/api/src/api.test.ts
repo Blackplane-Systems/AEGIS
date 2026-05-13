@@ -29,16 +29,29 @@ describe('FleetDashboardApi', () => {
         anomalies: ['d1'],
         causality: { d1: ['d2'] },
         survival: { '1.0.0': [{ time: 1, survival: 1 }] },
+        telemetry: { d1: [{ capability: 'temperature', value: 22 }] },
+        logs: [{ id: 'event-1' }, { id: 'event-2' }],
+        health: { status: 'ok', subscribers: 1 },
       },
       keys.publicKeyPem,
       2,
     );
     const headers = { authorization: `Bearer ${token}` };
+    expect(api.handle({ method: 'GET', path: '/health', headers }).body).toEqual({
+      status: 'ok',
+      subscribers: 1,
+    });
+    expect(api.handle({ method: 'GET', path: '/logs?count=1', headers }).body).toEqual([
+      { id: 'event-2' },
+    ]);
     expect(api.handle({ method: 'GET', path: '/devices', headers }).status).toBe(200);
     expect(api.handle({ method: 'GET', path: '/devices/d1', headers }).status).toBe(200);
     expect(api.handle({ method: 'GET', path: '/devices/d1/audit?limit=1', headers }).status).toBe(
       200,
     );
+    expect(
+      api.handle({ method: 'GET', path: '/devices/d1/telemetry?limit=1', headers }).body,
+    ).toEqual([{ capability: 'temperature', value: 22 }]);
     expect(api.handle({ method: 'GET', path: '/fleet/anomalies', headers }).body).toEqual(['d1']);
     expect(api.handle({ method: 'GET', path: '/fleet/causality', headers }).body).toEqual({
       d1: ['d2'],
@@ -63,6 +76,9 @@ describe('FleetDashboardApi', () => {
       { method: 'GET' as const, path: '/devices' },
       { method: 'GET' as const, path: '/devices/d1' },
       { method: 'GET' as const, path: '/devices/d1/audit?limit=1' },
+      { method: 'GET' as const, path: '/devices/d1/telemetry?limit=1' },
+      { method: 'GET' as const, path: '/logs?count=1' },
+      { method: 'GET' as const, path: '/health' },
       { method: 'GET' as const, path: '/fleet/anomalies' },
       { method: 'GET' as const, path: '/fleet/causality' },
       { method: 'GET' as const, path: '/fleet/firmware/1/survival' },

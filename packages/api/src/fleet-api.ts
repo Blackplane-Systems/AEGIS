@@ -33,6 +33,9 @@ export interface FleetApiData {
   readonly anomalies: readonly string[];
   readonly causality: CausalityGraph;
   readonly survival: Record<string, unknown>;
+  readonly telemetry?: Record<string, readonly unknown[]>;
+  readonly logs?: readonly unknown[];
+  readonly health?: Record<string, unknown>;
 }
 
 /** Dependency-free REST-style fleet dashboard API with signed-token auth and write rate limiting. */
@@ -56,6 +59,13 @@ export class FleetDashboardApi {
     }
     const url = new URL(request.path, 'http://aegis.local');
     const segments = url.pathname.split('/').filter(Boolean);
+    if (request.method === 'GET' && url.pathname === '/health') {
+      return { status: 200, body: this.data.health ?? { status: 'ok' } };
+    }
+    if (request.method === 'GET' && url.pathname === '/logs') {
+      const count = Number(url.searchParams.get('count') ?? 100);
+      return { status: 200, body: (this.data.logs ?? []).slice(-count) };
+    }
     if (request.method === 'GET' && url.pathname === '/devices') {
       return { status: 200, body: this.data.devices };
     }
@@ -65,6 +75,10 @@ export class FleetDashboardApi {
     if (request.method === 'GET' && segments[0] === 'devices' && segments[2] === 'audit') {
       const limit = Number(url.searchParams.get('limit') ?? 10);
       return { status: 200, body: (this.data.audit[segments[1]!] ?? []).slice(-limit) };
+    }
+    if (request.method === 'GET' && segments[0] === 'devices' && segments[2] === 'telemetry') {
+      const limit = Number(url.searchParams.get('limit') ?? 100);
+      return { status: 200, body: (this.data.telemetry?.[segments[1]!] ?? []).slice(-limit) };
     }
     if (request.method === 'GET' && url.pathname === '/fleet/anomalies') {
       return { status: 200, body: this.data.anomalies };

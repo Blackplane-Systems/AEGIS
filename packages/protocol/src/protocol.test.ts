@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BleAdapter,
   HttpWebhookAdapter,
   MqttAdapter,
   RawSerialAdapter,
   Reliability,
+  WebSocketDeviceAdapter,
   applyFieldMap,
   composeReliability,
 } from './index';
@@ -74,5 +76,45 @@ describe('protocol adapters', () => {
       '{"deviceId":"serial-1","timestamp":"2026-01-01T00:00:00.000Z","payload":{"ok":true},"sequenceId":1}\n',
     );
     expect(event.sourceProtocol).toBe('raw_serial');
+  });
+
+  it('normalises gateway-style WebSocket telemetry', () => {
+    const adapter = new WebSocketDeviceAdapter();
+    const event = adapter.normalise({
+      device_id: 'ws-device-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      id: 'msg-1',
+      capability: 'temperature',
+      value: 22.4,
+      metadata: { room: 'lab' },
+    });
+    expect(event).toEqual({
+      deviceId: 'ws-device-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      sourceProtocol: 'websocket',
+      sequenceId: 'msg-1',
+      payload: {
+        capability: 'temperature',
+        value: 22.4,
+        metadata: { room: 'lab' },
+      },
+    });
+  });
+
+  it('normalises simulated BLE telemetry', () => {
+    const adapter = new BleAdapter();
+    const event = adapter.normalise({
+      device_id: 'ble-device-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      sequence_id: 12,
+      value: -72,
+      metadata: { rssi: -72 },
+    });
+    expect(event.sourceProtocol).toBe('ble');
+    expect(event.payload).toEqual({
+      capability: 'ble_signal',
+      value: -72,
+      metadata: { rssi: -72 },
+    });
   });
 });
