@@ -14,7 +14,8 @@
     "test": "vitest run --coverage=false",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
-    "aegis": "node dist/packages/cli/src/index.js"
+    "aegis": "node dist/packages/cli/src/index.js",
+    "gateway": "node dist/packages/gateway/src/server.js"
   },
   "devDependencies": {
     "@eslint/js": "*",
