@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import { AegisGatewayHost } from './host';
 import { createGatewayConfig } from './config';
 import { EdgeGateway } from './gateway';
 import { GatewayHttpApi, hashGatewayAdminToken } from './http-api';
 import { createGatewayCredential } from './profiles';
-import { encryptAesGcmPayload, signHmacEnvelope } from './security';
+import { encryptAesGcmPayload, sha256Hex, signHmacEnvelope } from './security';
 import { MemoryBackendConnector } from './backend';
 import { UniversalIngressEnvelope } from './types';
+import { StreamBackendConnector } from './enterprise';
+import { StaticReachabilityProbe } from './network-map';
 
 describe('EdgeGateway production ingress', () => {
   it('accepts ESP32 HMAC telemetry over WiFi HTTP and fans out to local and remote backends', async () => {
@@ -171,5 +174,247 @@ describe('EdgeGateway production ingress', () => {
     await expect(gateway.ingest({ ...envelope, transport: 'ble', sequenceId: 2 })).rejects.toThrow(
       /not allowed to use ble/,
     );
+  });
+
+  it('registers first-time devices through local password enrollment and issues certificates', async () => {
+    const config = createGatewayConfig({
+      credentials: [],
+      adminTokenSha256: hashGatewayAdminToken('admin'),
+    });
+    const gateway = new EdgeGateway(config, [], {
+      registrationPolicy: {
+        authority: 'AEGIS_LOCAL',
+        requireDeviceId: true,
+        passwordSha256: sha256Hex('provision-me'),
+      },
+    });
+    const api = new GatewayHttpApi(gateway, config);
+
+    const rejected = await api.handle({
+      method: 'POST',
+      path: '/register',
+      body: { deviceId: 'esp32-new', profile: 'ESP32', password: 'wrong' },
+    });
+    const accepted = await api.handle({
+      method: 'POST',
+      path: '/register',
+      body: {
+        deviceId: 'esp32-new',
+        profile: 'ESP32',
+        password: 'provision-me',
+        capabilities: ['temperature'],
+      },
+    });
+
+    expect(rejected.status).toBe(400);
+    expect(accepted.status).toBe(201);
+    expect(JSON.stringify(accepted.body)).toContain('-----BEGIN CERTIFICATE-----');
+    expect(gateway.credentialSummary()).toHaveLength(1);
+  });
+
+  it('parses RS485-style multiplexed frames and processes multiple device payloads', async () => {
+    const config = createGatewayConfig({
+      credentials: [],
+      allowPlaintextFrom: ['serial'],
+    });
+    const gateway = new EdgeGateway(config, [], {
+      channels: [
+        {
+          id: 'rs485-main',
+          transport: 'serial',
+          segmentId: 'plant-floor-a',
+          frameFormat: 'JSON_LINES',
+          maxFrameBytes: 4096,
+          requireDeviceIdentityInPayload: true,
+          defaultSecurityMode: 'OPEN_BROADCAST',
+        },
+      ],
+    });
+    const frame = [
+      {
+        deviceId: 'arduino-1',
+        sequenceId: 'a-1',
+        timestamp: '2026-01-01T00:00:05.000Z',
+        payload: { capability: 'flow', value: 10 },
+      },
+      {
+        deviceId: 'arduino-2',
+        sequenceId: 'a-2',
+        timestamp: '2026-01-01T00:00:06.000Z',
+        payload: { capability: 'pressure', value: 2.4 },
+      },
+    ]
+      .map((record) => JSON.stringify(record))
+      .join('\n');
+
+    const results = await gateway.ingestChannelFrame('rs485-main', frame);
+
+    expect(results).toHaveLength(2);
+    expect(gateway.twinState('arduino-1')).toMatchObject({ flow: { value: 10 } });
+    expect(gateway.twinState('arduino-2')).toMatchObject({ pressure: { value: 2.4 } });
+  });
+
+  it('learns network baselines, records verified attacks, and replays structured logs', async () => {
+    const config = createGatewayConfig({ credentials: [] });
+    const gateway = new EdgeGateway(config);
+    for (let index = 0; index < 5; index += 1) {
+      gateway.observeNetworkCondition({
+        key: 'lan-a:mqtt',
+        latencyMs: 10,
+        packetLossRatio: 0.01,
+        reconnects: 0,
+        observedAt: `2026-01-01T00:00:0${index}.000Z`,
+      });
+    }
+    const deviation = gateway.observeNetworkCondition({
+      key: 'lan-a:mqtt',
+      latencyMs: 100,
+      packetLossRatio: 0.5,
+      reconnects: 3,
+      observedAt: '2026-01-01T00:00:10.000Z',
+    });
+    const attack = gateway.recordVerifiedAttack({
+      type: 'SPOOFING',
+      reason: 'confirmed duplicated identity on open wifi',
+      indicators: ['duplicated identity'],
+    });
+
+    expect(deviation).toMatchObject({
+      latencyDeviation: true,
+      packetLossDeviation: true,
+      reconnectDeviation: true,
+    });
+    expect(attack).toMatchObject({ type: 'SPOOFING', count: 1 });
+    expect(gateway.replayLogs({ limit: 10 }).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('can be embedded as an SDK host and publish to a Kafka-like stream connector', async () => {
+    const sent: unknown[] = [];
+    const connector = new StreamBackendConnector('kafka', 'aegis.events', {
+      async send(record) {
+        sent.push(record);
+      },
+    });
+    const config = createGatewayConfig({
+      runMode: 'SDK_EMBEDDED',
+      backendBinding: 'TIGHT',
+      credentials: [],
+      allowPlaintextFrom: ['broadcast_udp'],
+      networkSegments: [
+        {
+          id: 'lan-a',
+          kind: 'LOCAL_LAN',
+          allowCloudEgress: true,
+          allowPeerForwarding: true,
+        },
+      ],
+    });
+    const host = new AegisGatewayHost(config, [connector]);
+
+    await host.gateway.ingest({
+      deviceId: 'node-1',
+      transport: 'broadcast_udp',
+      eventKind: 'TELEMETRY',
+      timestamp: '2026-01-01T00:00:11.000Z',
+      sequenceId: 'sdk-1',
+      payload: { capability: 'status', value: 'ok' },
+      security: { mode: 'OPEN_BROADCAST' },
+    });
+
+    expect(host.descriptor()).toMatchObject({ runMode: 'SDK_EMBEDDED', backendBinding: 'TIGHT' });
+    expect(sent).toHaveLength(1);
+  });
+
+  it('maintains topology, reachability, and route tables from observed traffic and probes', async () => {
+    const probe = new StaticReachabilityProbe();
+    probe.set('node-1', { reachable: true, latencyMs: 12 });
+    const config = createGatewayConfig({
+      credentials: [],
+      allowPlaintextFrom: ['mqtt'],
+      networkSegments: [
+        {
+          id: 'lan-a',
+          kind: 'LOCAL_LAN',
+          allowCloudEgress: true,
+          allowPeerForwarding: true,
+        },
+      ],
+    });
+    const gateway = new EdgeGateway(config, [], { reachabilityProbe: probe });
+
+    await gateway.ingest({
+      deviceId: 'node-1',
+      transport: 'mqtt',
+      eventKind: 'TELEMETRY',
+      timestamp: '2026-01-01T00:00:12.000Z',
+      sequenceId: 'net-1',
+      payload: { capability: 'status', value: 'ok' },
+      metadata: {
+        segmentId: 'lan-a',
+        address: '192.168.1.22',
+        routeMetric: 3,
+      },
+      security: { mode: 'OPEN_BROADCAST' },
+    });
+    const topology = gateway.networkTopology();
+    const probeResult = await gateway.probeReachability({
+      nodeId: 'node-1',
+      address: '192.168.1.22',
+      protocol: 'TCP',
+      port: 1883,
+    });
+
+    expect(topology.nodes.map((node) => node.id)).toEqual(
+      expect.arrayContaining(['aegis-gateway-local', 'lan-a', 'node-1']),
+    );
+    expect(topology.links[0]).toMatchObject({
+      from: 'lan-a',
+      to: 'node-1',
+      kind: 'MQTT',
+      routingProtocol: 'MQTT_BROKER',
+    });
+    expect(gateway.routeTable('node-1')[0]).toMatchObject({
+      destination: 'node-1',
+      nextHop: 'lan-a',
+      protocol: 'MQTT_BROKER',
+      metric: 3,
+    });
+    expect(probeResult).toMatchObject({ reachable: true, latencyMs: 12 });
+    expect(gateway.networkTopology().nodes.find((node) => node.id === 'node-1')).toMatchObject({
+      reachability: 'REACHABLE',
+    });
+  });
+
+  it('exposes authenticated network map, routes, and reachability probe APIs', async () => {
+    const probe = new StaticReachabilityProbe();
+    probe.set('gateway-peer', { reachable: false, error: 'blocked' });
+    const token = 'admin-token';
+    const config = createGatewayConfig({
+      credentials: [],
+      adminTokenSha256: hashGatewayAdminToken(token),
+    });
+    const gateway = new EdgeGateway(config, [], { reachabilityProbe: probe });
+    const api = new GatewayHttpApi(gateway, config);
+    const headers = { authorization: `Bearer ${token}` };
+
+    expect(await api.handle({ method: 'GET', path: '/api/network/map' })).toMatchObject({
+      status: 401,
+    });
+    expect(await api.handle({ method: 'GET', path: '/api/network/map', headers })).toMatchObject({
+      status: 200,
+    });
+    expect(await api.handle({ method: 'GET', path: '/api/network/routes', headers })).toMatchObject(
+      {
+        status: 200,
+      },
+    );
+    const result = await api.handle({
+      method: 'POST',
+      path: '/api/network/probe',
+      headers,
+      body: { nodeId: 'gateway-peer', address: '10.0.0.2', protocol: 'TCP', port: 8080 },
+    });
+
+    expect(result).toMatchObject({ status: 202, body: { reachable: false } });
   });
 });

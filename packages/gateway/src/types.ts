@@ -26,6 +26,21 @@ export type IngressSecurityMode = 'OPEN_BROADCAST' | 'HMAC_SHA256' | 'ED25519' |
 /** Operator deployment mode for a gateway process. */
 export type GatewayMode = 'LOCAL_ONLY' | 'HYBRID' | 'REMOTE_MANAGEMENT';
 
+/** How AEGIS is hosted relative to the calling application or cloud platform. */
+export type AegisRunMode =
+  | 'SDK_EMBEDDED'
+  | 'STANDALONE_PROCESS'
+  | 'SIDECAR_PROCESS'
+  | 'CLOUD_CONTROL_PLANE'
+  | 'LOCAL_LAN_ONLY'
+  | 'MULTI_LAN_BRIDGE';
+
+/** Binding strength between AEGIS and an upstream application backend. */
+export type BackendBindingMode = 'LOOSE' | 'TIGHT';
+
+/** Registration authority used during first-time device enrollment. */
+export type RegistrationAuthority = 'AEGIS_LOCAL' | 'EXTERNAL_AUTHORITY' | 'FEDERATED';
+
 /** High-level event class used for risk checks before runtime processing. */
 export type IngressEventKind =
   | 'TELEMETRY'
@@ -82,14 +97,35 @@ export interface GatewayIngressResult {
 /** Gateway configuration for local-only, hybrid, or remote-managed deployments. */
 export interface GatewayConfig {
   readonly mode: GatewayMode;
+  readonly runMode: AegisRunMode;
+  readonly backendBinding: BackendBindingMode;
   readonly allowPlaintextFrom: readonly EdgeTransport[];
   readonly requireNonceForSecureIngress: boolean;
   readonly replayWindowMs: number;
   readonly maxBodyBytes: number;
   readonly eventLogSize: number;
+  readonly gatewayId: string;
   readonly adminTokenSha256?: string;
   readonly publicHealth: boolean;
   readonly credentials: readonly GatewayDeviceCredential[];
+  readonly networkSegments: readonly NetworkSegmentConfig[];
+  readonly channelDefaults: ChannelProcessingDefaults;
+}
+
+/** Logical LAN, cloud, or serial segment used for routing and policy. */
+export interface NetworkSegmentConfig {
+  readonly id: string;
+  readonly kind: 'LOCAL_LAN' | 'REMOTE_CLOUD' | 'SERIAL_BUS' | 'MESH' | 'DMZ';
+  readonly allowCloudEgress: boolean;
+  readonly allowPeerForwarding: boolean;
+  readonly description?: string;
+}
+
+/** Defaults applied to newly registered channels. */
+export interface ChannelProcessingDefaults {
+  readonly maxFrameBytes: number;
+  readonly requireDeviceIdentityInPayload: boolean;
+  readonly autoBaseline: boolean;
 }
 
 /** Backend delivery scope. */

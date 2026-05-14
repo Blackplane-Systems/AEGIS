@@ -43,6 +43,29 @@ export class GatewayHttpApi {
         };
       }
     }
+    if (request.method === 'POST' && segments[0] === 'channels' && segments[2] === 'frame') {
+      try {
+        return {
+          status: 202,
+          body: await this.gateway.ingestChannelFrame(segments[1]!, bodyToFrame(request.body)),
+        };
+      } catch (error) {
+        return {
+          status: 400,
+          body: { error: error instanceof Error ? error.message : String(error) },
+        };
+      }
+    }
+    if (request.method === 'POST' && url.pathname === '/register') {
+      try {
+        return { status: 201, body: await this.gateway.registerDevice(request.body as never) };
+      } catch (error) {
+        return {
+          status: 400,
+          body: { error: error instanceof Error ? error.message : String(error) },
+        };
+      }
+    }
     if (!this.isAuthorized(request)) {
       return { status: 401, body: { error: 'unauthorized' } };
     }
@@ -64,6 +87,59 @@ export class GatewayHttpApi {
         body: this.gateway.recentEvents(Number(url.searchParams.get('limit') ?? 100)),
       };
     }
+    if (request.method === 'GET' && url.pathname === '/api/logs') {
+      return {
+        status: 200,
+        body: this.gateway.logs(Number(url.searchParams.get('limit') ?? 100)),
+      };
+    }
+    if (request.method === 'GET' && url.pathname === '/api/replay') {
+      return {
+        status: 200,
+        body: this.gateway.replayLogs({
+          ...(url.searchParams.get('deviceId') === null
+            ? {}
+            : { deviceId: url.searchParams.get('deviceId')! }),
+          ...(url.searchParams.get('channelId') === null
+            ? {}
+            : { channelId: url.searchParams.get('channelId')! }),
+          ...(url.searchParams.get('since') === null
+            ? {}
+            : { since: url.searchParams.get('since')! }),
+          ...(url.searchParams.get('until') === null
+            ? {}
+            : { until: url.searchParams.get('until')! }),
+          limit: Number(url.searchParams.get('limit') ?? 100),
+        }),
+      };
+    }
+    if (request.method === 'GET' && url.pathname === '/api/attacks') {
+      return { status: 200, body: this.gateway.attackSummaries() };
+    }
+    if (request.method === 'POST' && url.pathname === '/api/attacks/verified') {
+      return { status: 202, body: this.gateway.recordVerifiedAttack(request.body as never) };
+    }
+    if (request.method === 'GET' && url.pathname === '/api/baselines') {
+      return { status: 200, body: this.gateway.baselineSnapshot() };
+    }
+    if (request.method === 'POST' && url.pathname === '/api/baselines/observe') {
+      return { status: 202, body: this.gateway.observeNetworkCondition(request.body as never) };
+    }
+    if (request.method === 'GET' && url.pathname === '/api/channels') {
+      return { status: 200, body: this.gateway.channelSummary() };
+    }
+    if (request.method === 'GET' && url.pathname === '/api/network/map') {
+      return { status: 200, body: this.gateway.networkTopology() };
+    }
+    if (request.method === 'GET' && url.pathname === '/api/network/routes') {
+      return {
+        status: 200,
+        body: this.gateway.routeTable(url.searchParams.get('destination') ?? undefined),
+      };
+    }
+    if (request.method === 'POST' && url.pathname === '/api/network/probe') {
+      return { status: 202, body: await this.gateway.probeReachability(request.body as never) };
+    }
     if (request.method === 'POST' && url.pathname === '/api/backends/flush') {
       return { status: 200, body: await this.gateway.flushBackends() };
     }
@@ -78,6 +154,13 @@ export class GatewayHttpApi {
     const token = header?.startsWith('Bearer ') ? header.slice('Bearer '.length) : undefined;
     return verifyAdminToken(token, this.config.adminTokenSha256);
   }
+}
+
+function bodyToFrame(body: unknown): string | Buffer {
+  if (typeof body === 'string' || Buffer.isBuffer(body)) {
+    return body;
+  }
+  return JSON.stringify(body);
 }
 
 /** Creates a Node HTTP server around the gateway API handler. */

@@ -27,6 +27,11 @@ export class GatewayCredentialRegistry {
     return this.credentials.get(deviceId);
   }
 
+  /** Adds or replaces a device credential after registration. */
+  public upsert(credential: GatewayDeviceCredential): void {
+    this.credentials.set(credential.deviceId, credential);
+  }
+
   /** Lists credentials without exposing key material. */
   public listPublic(): readonly Omit<GatewayDeviceCredential, 'aesKey' | 'hmacSecret'>[] {
     return [...this.credentials.values()].map(
