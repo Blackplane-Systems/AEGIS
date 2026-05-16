@@ -315,7 +315,30 @@ interface CanonicalEvent {
 
 The MQTT adapter maps QoS values into reliability levels. The HTTP webhook adapter handles signed
 JSON webhook-style events. The raw serial adapter handles line-delimited JSON. The WebSocket and BLE
-adapters normalize gateway-style telemetry added from the reference inclusion review.
+adapters normalize gateway-style telemetry. Additional adapters handle UDP datagrams, LoRa packets,
+ESP-NOW frames, and network control-plane observations.
+
+Control-plane normalization matters because some failures are visible before application telemetry
+is decoded. ARP and NDP can reveal address resolution problems. IGMP and MLD can reveal multicast
+membership or discovery patterns. DHCP and SLAAC can reveal address churn. Routing observations such
+as OSPF, BGP, or RIP metadata can explain path instability. AEGIS treats these observations as
+canonical events with `capability: "network_control_observation"` so they can feed logging, network
+intelligence, policy, and operator diagnostics without giving protocol adapters authority to actuate.
+
+```json
+{
+  "protocol": "igmp",
+  "deviceId": "camera-1",
+  "timestamp": "2026-01-01T00:00:03.000Z",
+  "sequenceId": "i1",
+  "groupAddress": "239.10.10.10",
+  "interfaceId": "wlan0"
+}
+```
+
+The normalized event retains the subject device, observer metadata, control protocol, source or
+destination address fields when present, VLAN id, interface id, group address, route metric, and any
+additional metadata supplied by the gateway agent.
 
 Reliability is modeled as a lattice.
 

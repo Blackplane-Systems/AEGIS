@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   BleAdapter,
+  EspNowFrameAdapter,
   HttpWebhookAdapter,
+  LoraPacketAdapter,
   MqttAdapter,
+  NetworkControlPlaneAdapter,
   RawSerialAdapter,
   Reliability,
+  UdpDatagramAdapter,
   WebSocketDeviceAdapter,
   applyFieldMap,
   composeReliability,
@@ -115,6 +119,47 @@ describe('protocol adapters', () => {
       capability: 'ble_signal',
       value: -72,
       metadata: { rssi: -72 },
+    });
+  });
+
+  it('normalises UDP, LoRa, ESP-NOW, and network control-plane observations', () => {
+    const udp = new UdpDatagramAdapter().normalise({
+      deviceId: 'udp-node-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      sequenceId: 'u1',
+      payload: { capability: 'presence', value: true },
+    });
+    const lora = new LoraPacketAdapter().normalise({
+      device_id: 'lora-node-1',
+      timestamp: '2026-01-01T00:00:01.000Z',
+      sequence_id: 'l1',
+      capability: 'soil',
+      value: 0.4,
+      metadata: { rssi: -110 },
+    });
+    const espnow = new EspNowFrameAdapter().normalise({
+      device_id: 'esp-peer-1',
+      timestamp: '2026-01-01T00:00:02.000Z',
+      sequence_id: 'e1',
+      capability: 'relay',
+      value: 'closed',
+    });
+    const igmp = new NetworkControlPlaneAdapter('pi-gateway').normalise({
+      protocol: 'igmp',
+      deviceId: 'camera-1',
+      timestamp: '2026-01-01T00:00:03.000Z',
+      sequenceId: 'i1',
+      groupAddress: '239.10.10.10',
+      interfaceId: 'wlan0',
+    });
+
+    expect(udp.sourceProtocol).toBe('udp_datagram');
+    expect(lora.payload).toMatchObject({ capability: 'soil', metadata: { rssi: -110 } });
+    expect(espnow.sourceProtocol).toBe('esp_now');
+    expect(igmp.payload).toMatchObject({
+      capability: 'network_control_observation',
+      controlProtocol: 'IGMP',
+      metadata: { observerId: 'pi-gateway', groupAddress: '239.10.10.10' },
     });
   });
 });

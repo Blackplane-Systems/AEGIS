@@ -105,6 +105,12 @@ as firewall drops or missing port forwarding, scores routes, and emits safe acti
 `AUTO_SAFE` mode the gateway can hold remote fanout, prefer local routes, or throttle low-priority
 traffic while preserving local processing.
 
+Protocol normalization covers more than MQTT and HTTP. The protocol package includes adapters for
+raw serial, WebSocket, BLE, UDP datagrams, LoRa packets, ESP-NOW frames, and network control-plane
+observations. The control-plane adapter lets a gateway feed ARP, IGMP, DHCP, SLAAC, NDP, OSPF, BGP,
+RIP, multicast listener, or similar observations into the same canonical event model used by device
+telemetry.
+
 After building, a standalone gateway process can be started with:
 
 ```bash

@@ -93,6 +93,75 @@ export class BleAdapter extends ProtocolAdapter<Record<string, unknown>> {
   }
 }
 
+/** UDP datagram adapter for local broadcast or unicast JSON telemetry. */
+export class UdpDatagramAdapter extends ProtocolAdapter<Record<string, unknown>> {
+  public constructor(fieldMap: FieldMap = DEFAULT_FIELD_MAP) {
+    super({
+      transport: 'udp_datagram',
+      reliability: Reliability.AT_MOST_ONCE,
+      max_latency_ms: 100,
+      field_map: fieldMap,
+      security_level: 'NONE',
+      buffer_capacity: 512,
+      decode_fn: decodeJson,
+      validate_fn: isRecordPayload,
+    });
+  }
+}
+
+/** LoRa gateway packet adapter for constrained long-range node telemetry. */
+export class LoraPacketAdapter extends ProtocolAdapter<Record<string, unknown>> {
+  public constructor(fieldMap: FieldMap = DEFAULT_FIELD_MAP) {
+    super({
+      transport: 'lora',
+      reliability: Reliability.AT_MOST_ONCE,
+      max_latency_ms: 5000,
+      field_map: fieldMap,
+      security_level: 'ENCRYPTED',
+      buffer_capacity: 256,
+      decode_fn: decodeBridgeStylePayload('lora'),
+      validate_fn: isRecordPayload,
+    });
+  }
+}
+
+/** ESP-NOW frame adapter for low-latency peer telemetry bridged into AEGIS. */
+export class EspNowFrameAdapter extends ProtocolAdapter<Record<string, unknown>> {
+  public constructor(fieldMap: FieldMap = DEFAULT_FIELD_MAP) {
+    super({
+      transport: 'esp_now',
+      reliability: Reliability.AT_MOST_ONCE,
+      max_latency_ms: 50,
+      field_map: fieldMap,
+      security_level: 'SIGNED',
+      buffer_capacity: 512,
+      decode_fn: decodeBridgeStylePayload('espnow'),
+      validate_fn: isRecordPayload,
+    });
+  }
+}
+
+/** Control-plane observation adapter for ARP, IGMP, DHCP, SLAAC, OSPF, and similar signals. */
+export class NetworkControlPlaneAdapter extends ProtocolAdapter<Record<string, unknown>> {
+  public constructor(observerId = 'network-observer') {
+    super({
+      transport: 'network_control',
+      reliability: Reliability.AT_MOST_ONCE,
+      max_latency_ms: 100,
+      field_map: {
+        deviceId: 'deviceId',
+        timestamp: 'timestamp',
+        payload: 'payload',
+        sequenceId: 'sequenceId',
+      },
+      security_level: 'NONE',
+      buffer_capacity: 4096,
+      decode_fn: (raw) => decodeControlPlaneObservation(raw, observerId),
+      validate_fn: isRecordPayload,
+    });
+  }
+}
+
 function mqttReliability(qos: 0 | 1 | 2): Reliability {
   if (qos === 0) {
     return Reliability.AT_MOST_ONCE;
@@ -103,7 +172,7 @@ function mqttReliability(qos: 0 | 1 | 2): Reliability {
   return Reliability.EXACTLY_ONCE;
 }
 
-function decodeBridgeStylePayload(prefix: 'ble' | 'ws') {
+function decodeBridgeStylePayload(prefix: 'ble' | 'ws' | 'lora' | 'espnow') {
   return (raw: unknown): Record<string, unknown> => {
     const message = decodeJson(raw);
     const deviceId =
@@ -120,6 +189,39 @@ function decodeBridgeStylePayload(prefix: 'ble' | 'ws') {
         metadata: message.metadata ?? {},
       },
     };
+  };
+}
+
+function decodeControlPlaneObservation(raw: unknown, observerId: string): Record<string, unknown> {
+  const message = decodeJson(raw);
+  const protocol = String(message.protocol ?? message.controlProtocol ?? 'unknown').toUpperCase();
+  const timestamp = message.timestamp ?? new Date().toISOString();
+  const sequenceId = message.sequenceId ?? message.sequence_id ?? message.id ?? randomUUID();
+  const subject =
+    stringValue(message.deviceId ?? message.device_id ?? message.subjectDeviceId) ?? observerId;
+  return {
+    deviceId: subject,
+    timestamp,
+    sequenceId,
+    payload: {
+      capability: 'network_control_observation',
+      controlProtocol: protocol,
+      value: message.value ?? message.event ?? protocol,
+      metadata: {
+        observerId,
+        sourceAddress: message.sourceAddress ?? message.src,
+        destinationAddress: message.destinationAddress ?? message.dst,
+        groupAddress: message.groupAddress,
+        interfaceId: message.interfaceId,
+        vlanId: message.vlanId,
+        routeMetric: message.routeMetric,
+        ...(message.metadata !== null &&
+        typeof message.metadata === 'object' &&
+        !Array.isArray(message.metadata)
+          ? (message.metadata as Record<string, unknown>)
+          : {}),
+      },
+    },
   };
 }
 
