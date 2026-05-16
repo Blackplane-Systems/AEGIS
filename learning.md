@@ -1,6 +1,6 @@
-# AEGIS Learning Guide
+# AEGIS Technical Reference
 
-## How To Use This Guide
+## How To Use This Reference
 
 This document is a technical reference for engineers and operators integrating AEGIS into local,
 cloud, hybrid, and sidecar deployments.
@@ -14,7 +14,7 @@ gateways submit normalized envelopes, AEGIS validates identity and transport pol
 and security checks, updates local state, evaluates policy and safety gates, records audit evidence,
 and optionally forwards accepted events to local or remote backends.
 
-The guide focuses on integration surfaces, data contracts, runtime responsibilities, security
+The reference focuses on integration surfaces, data contracts, runtime responsibilities, security
 boundaries, and operational commands. It avoids deployment-specific assumptions so the same core can
 run embedded as an SDK, as a standalone gateway, as a sidecar beside an existing backend, as a cloud
 control-plane component, or as a local-only LAN controller.
@@ -36,14 +36,16 @@ control-plane component, or as a local-only LAN controller.
 13. Fleet analytics
 14. Simulation and fault injection
 15. Security hardening
-16. Fleet API
-17. CLI workflow
-18. End-to-end system walk-through
-19. Extension guide
+16. Gateway network intelligence
+17. Fleet API
+18. CLI workflow
+19. End-to-end system walk-through
 20. Deployment and integration modes
-21. Extension guide
-22. Troubleshooting
-23. Operational verification checklist
+21. Adaptive network operations
+22. Extension guide
+23. Troubleshooting
+24. Operational verification checklist
+25. Closing model
 
 ## 1. The Problem AEGIS Solves
 
@@ -122,6 +124,7 @@ packages/analytics   causality, anomaly scoring, and survival estimation
 packages/simulation  network impairment, fault injection, and twin fidelity
 packages/security    signatures, audit signing, and STRIDE control mapping
 packages/api         authenticated fleet dashboard API
+packages/gateway     heterogeneous edge ingress, network mapping, adaptive route intelligence
 packages/cli         local command-line harness
 tests/integration    cross-package scenarios
 docs                 supporting reference material
@@ -142,7 +145,9 @@ flowchart TD
     Protocol --> Runtime
     Policy --> Runtime
     Runtime --> CLI[packages/cli]
+    Runtime --> Gateway[packages/gateway]
     Runtime --> API[packages/api]
+    Gateway --> API
     Health[packages/health] --> Trust
     Analytics[packages/analytics] --> API
     Simulation[packages/simulation] --> Tests[tests/integration]
@@ -584,6 +589,99 @@ The most important practical rule is this: adapters normalize input, but they do
 to actuate. This protects the system from a common gateway mistake where receiving a valid-looking
 message accidentally becomes permission to perform a command.
 
+## 16. Gateway Network Intelligence
+
+The gateway package is the integration layer for environments where devices do not all speak the
+same protocol, do not all sit on one subnet, and do not all report directly. It accepts
+`UniversalIngressEnvelope` records from direct devices, bridges, concentrators, serial buses,
+multi-device aggregators, backend services, and local network agents. The same gateway can be used
+inside another Node process, as a standalone process, as a sidecar beside a backend, or as the local
+control point between devices and the cloud.
+
+The network model is split into two parts. `NetworkMap` records observed facts: nodes, links, route
+entries, reachability state, segment ids, addresses, and forwarding protocol hints. It is deliberately
+conservative. If a message arrives over MQTT with `segmentId: "lan-a"`, AEGIS records a route from
+`lan-a` to the device using the MQTT broker forwarding model. If a serial or RS485 payload contains
+embedded device ids, AEGIS records the upstream aggregator and the downstream leaf devices as
+separate route destinations.
+
+`NetworkIntelligenceEngine` is the active learning and decision component. It consumes accepted
+ingress, explicit network observations, route tables, and reachability probe results. It learns
+per-path baselines for latency, packet loss, reconnect rate, jitter, encryption ratio, broadcast
+ratio, address families, routing protocols, and aggregator usage. It then classifies blockers and
+creates action plans.
+
+```mermaid
+flowchart LR
+    A[Device, bridge, bus, backend] --> B[UniversalIngressEnvelope]
+    B --> C[Security and replay checks]
+    C --> D[NetworkMap]
+    D --> E[NetworkIntelligenceEngine]
+    E --> F{Decision}
+    F -->|safe local action| G[hold remote fanout or throttle]
+    F -->|operator action| H[probe, inspect firewall, inspect NAT]
+    F -->|visibility| I[UI and headless APIs]
+```
+
+The engine understands symptoms from several layers of a real network stack. Link-layer and local
+media observations include Ethernet, WiFi, BLE, LoRa, ESP-NOW, broadcast traffic, and serial buses.
+Network-layer observations include IPv4, IPv6, ARP, NDP, VLAN information, DHCPv4, DHCPv6, and SLAAC
+metadata. Transport and application observations include TCP, UDP, MQTT, HTTP, WebSocket, serial
+payload framing, and application heartbeat probes. Routing metadata can identify static routes,
+OSPF, BGP, RIP, mesh paths, MQTT broker forwarding, LoRa gateways, ESP-NOW peers, and serial
+multiplexing.
+
+AEGIS treats network behavior as both a blocker source and an information source. A timeout can mean
+a firewall drop. A connection refusal can mean a missing service binding or port-forwarding rule.
+Frequent route metric changes can indicate a route flap. Address churn can indicate a DHCP or SLAAC
+stability problem. Plaintext broadcast on an open WiFi segment can be accepted only when policy
+allows it, but the network intelligence layer still marks it as operational risk.
+
+The action model is intentionally constrained. The gateway does not automatically rewrite external
+routers or firewall rules. It can safely hold remote fanout, prefer a local route, throttle
+low-priority traffic, update learned baselines, and record operator-facing actions. Actions that
+require infrastructure changes are emitted as recommendations, such as inspecting a firewall rule,
+checking NAT or port forwarding, pinning a device to a segment, or splitting an aggregator stream.
+
+The default mode is `AUTO_SAFE`. In that mode AEGIS can perform only actions that reduce blast
+radius without granting new privileges. For example, if a WAN route shows high packet loss, AEGIS can
+continue local processing and hold remote fanout until the path improves. This prevents unnecessary
+cloud retries from overwhelming a weak link while preserving local safety behavior.
+
+Headless integrations use the authenticated network endpoints:
+
+```text
+GET  /api/network/map
+GET  /api/network/routes
+GET  /api/network/intelligence
+GET  /api/network/actions
+POST /api/network/probe
+POST /api/network/observe
+```
+
+`POST /api/network/observe` accepts external observations from a host service, network agent, or
+sidecar. This is useful when another service already knows about VLAN ids, NAT boundaries, DHCP
+lease behavior, OSPF route churn, or packet-loss statistics. AEGIS does not require those metrics,
+but when they are available it uses them to build a better route and risk model.
+
+The built-in UI is served by the same gateway API handler. It is intentionally dependency-free and
+works in standalone or sidecar deployments without a separate web framework.
+
+```bash
+set AEGIS_GATEWAY_ADMIN_TOKEN=local-dev-admin
+npm run build
+npm run gateway
+```
+
+```text
+http://127.0.0.1:8787/ui?token=local-dev-admin
+```
+
+The UI exposes topology counts, reachability state, learned baselines, route recommendations, recent
+findings, and recent action plans. The UI is not a separate authority layer. It displays the same
+state returned by the headless APIs, so production operators can use either the built-in console or
+their own dashboard.
+
 ## 17. Fleet API
 
 The API package provides a dependency-free REST-style interface for tests and embedding. It accepts
@@ -592,7 +690,9 @@ Write endpoints are rate limited.
 
 The API can list devices, show device detail, return audit records, return telemetry history, return
 recent logs, return fleet health, return anomaly lists, return causality graphs, return firmware
-survival curves, quarantine a device, and trigger rollback.
+survival curves, quarantine a device, and trigger rollback. The gateway API additionally exposes
+network topology, route tables, adaptive network intelligence, action plans, reachability probes,
+and external network-observation ingestion.
 
 ```mermaid
 flowchart LR
@@ -604,7 +704,7 @@ flowchart LR
 ```
 
 Do not add unauthenticated endpoints. Even a read endpoint can leak sensitive fleet topology,
-firmware, or operational state.
+firmware, routing structure, reachability state, or operational state.
 
 ## 18. CLI Workflow
 
@@ -695,8 +795,18 @@ interface UniversalIngressEnvelope {
   readonly sequenceId: string | number;
   readonly payload: unknown;
   readonly security: IngressSecurityDescriptor;
+  readonly localOnly?: boolean;
+  readonly broadcast?: boolean;
+  readonly metadata?: Record<string, unknown>;
 }
 ```
+
+The `metadata` object is where deployment-specific network facts enter the gateway without changing
+the canonical event contract. Common fields include `segmentId`, `address`, `addressFamily`,
+`interfaceId`, `routeMetric`, `routeCost`, `routingProtocol`, `latencyMs`, `packetLossRatio`,
+`reconnects`, `jitterMs`, `vlanId`, `dhcpObserved`, `dhcpAddressChanged`, `slaacObserved`,
+`slaacPrefixChanged`, `natDetected`, `privateToPublicBoundary`, `asymmetricRoute`, `mtuBlackhole`,
+`aggregatorId`, and `embeddedDeviceIds`.
 
 For multiplexed channels such as RS485, a channel parser can split a single physical stream into
 multiple device envelopes as long as every frame carries device identity or a verifiable identity
@@ -708,6 +818,31 @@ RS485 frame stream
   -> per-device UniversalIngressEnvelope
   -> security and replay checks
   -> state, policy, audit, backend fanout
+```
+
+Aggregator traffic has two identities: the transport peer that delivered the frame and the devices
+inside the frame. A LoRa gateway, RS485 controller, ESP-NOW bridge, or MQTT bridge may submit an
+envelope under its own id while the payload carries one or more downstream device ids. AEGIS records
+both levels. The aggregator remains a device in the topology, and each embedded id becomes a route
+destination through that aggregator.
+
+```json
+{
+  "deviceId": "rs485-controller-1",
+  "transport": "serial",
+  "eventKind": "TELEMETRY",
+  "timestamp": "2026-01-01T00:00:00.000Z",
+  "sequenceId": "batch-42",
+  "payload": { "capability": "batch", "value": 12 },
+  "security": { "mode": "OPEN_BROADCAST" },
+  "metadata": {
+    "segmentId": "plant-bus-a",
+    "aggregatorId": "rs485-controller-1",
+    "embeddedDeviceIds": ["pump-1", "valve-2", "meter-7"],
+    "routingProtocol": "SERIAL_MULTIPLEX",
+    "routeMetric": 6
+  }
+}
 ```
 
 Backend integration is intentionally pluggable. AEGIS can forward accepted canonical events to a
@@ -745,7 +880,136 @@ indicators, counts, and last-seen metadata. Future rejections can be classified 
 reason mapping and learned indicators, allowing the gateway to become more useful as verified
 malicious attempts are reviewed.
 
-## 21. Extension Guide
+Gateway network behavior is configured through `GatewayConfig.networkIntelligence`. Operators can
+disable it, run it in observe-only mode, run recommendation mode, or allow safe automatic actions.
+
+```ts
+const config = createGatewayConfig({
+  credentials: [],
+  networkIntelligence: {
+    enabled: true,
+    mode: 'AUTO_SAFE',
+    learnEveryObservation: true,
+    actionLimit: 250,
+    thresholds: {
+      minSamples: 5,
+      highLatencyMs: 500,
+      highPacketLossRatio: 0.08,
+      highReconnects: 3,
+      latencyZScore: 3,
+      packetLossZScore: 3,
+      reconnectZScore: 3,
+      routeFlapWindowMs: 60000,
+      routeFlapCount: 3,
+      staleNodeMs: 120000,
+      preferredRouteScore: 0.7,
+      openWifiPlaintextRisk: 0.65,
+    },
+  },
+});
+```
+
+## 21. Adaptive Network Operations
+
+Adaptive network operation is the runtime behavior that makes AEGIS useful on messy local and wide
+area networks. The engine does not assume that a route is stable, that a private address is reachable
+from the cloud, that a broadcast packet is safe, or that an aggregator payload represents only one
+device. Each observation updates the operational model.
+
+The recommended deployment pattern is to feed AEGIS as much network context as the environment can
+provide. A minimal ESP8266 broadcast sensor may send only a device id, sequence id, and payload. A
+Raspberry Pi gateway can add RSSI, interface name, IPv4 or IPv6 address family, observed latency,
+packet loss, reconnect count, and whether the packet came through a broker. A cloud sidecar can add
+NAT, port-forwarding, or firewall error details after attempting a callback.
+
+The route score combines learned path behavior with topology state. Reachable next hops score higher
+than unknown or unreachable next hops. Lower route metrics score higher than higher metrics. Protocols
+with stronger operational stability, such as static routes, OSPF, MQTT broker forwarding, or serial
+multiplexing, can score above unknown paths. Learned packet loss, reconnects, latency, and broadcast
+ratio reduce the score. Encryption ratio improves the score because encrypted paths are more suitable
+for commands and sensitive telemetry.
+
+```mermaid
+flowchart TB
+    A[Observation] --> B[Update path baseline]
+    B --> C[Classify blockers]
+    C --> D[Score candidate routes]
+    D --> E{Safe automatic action?}
+    E -->|yes| F[hold remote fanout, prefer local, throttle low priority]
+    E -->|no| G[operator recommendation]
+    F --> H[logs, events, UI, APIs]
+    G --> H
+```
+
+Common blocker classifications are:
+
+```text
+FIREWALL_DROP           timeout or silent filtering
+PORT_FORWARD_MISSING    connection refused or missing public service binding
+NAT_BOUNDARY            private-to-public boundary or relay requirement
+DHCP_CHURN              unstable DHCP lease or address movement
+SLAAC_PREFIX_CHANGE     IPv6 prefix or temporary address rotation
+VLAN_ISOLATION          peer-forwarding or segment policy mismatch
+ROUTE_FLAP              next-hop or route metric changed repeatedly
+ASYMMETRIC_ROUTE        forward and return path mismatch
+BROADCAST_NOISE         broadcast traffic dominates the path
+HIGH_LATENCY            latency above learned or configured threshold
+HIGH_PACKET_LOSS        packet loss above learned or configured threshold
+HIGH_RECONNECT_RATE     reconnect count above learned or configured threshold
+MTU_BLACKHOLE           fragmentation or MTU symptoms
+AGGREGATOR_ID_COLLISION aggregator id conflicts with embedded device id
+PLAINTEXT_OPEN_WIFI     high-risk plaintext broadcast on WiFi
+UNKNOWN_REACHABILITY    stale or failed reachability state
+```
+
+Safe automatic action is intentionally narrow. AEGIS can reduce external effects but should not grant
+new authority. Holding remote fanout prevents a bad WAN path from creating retry storms while local
+state and local safety still work. Preferring a local route keeps processing inside the known LAN or
+serial segment when the remote path is degraded. Throttling low-priority traffic preserves capacity
+for safety alerts, trust updates, and actuation requests.
+
+Use `POST /api/network/probe` when the gateway needs active reachability evidence.
+
+```json
+{
+  "nodeId": "mqtt-broker-a",
+  "address": "192.168.1.20",
+  "protocol": "TCP",
+  "port": 1883,
+  "timeoutMs": 1000
+}
+```
+
+Use `POST /api/network/observe` when another service already has network measurements.
+
+```json
+{
+  "key": "lan-a:ospf:uplink",
+  "layers": ["L3_IPV4", "L4_TCP", "CONTROL_ROUTING"],
+  "latencyMs": 18,
+  "packetLossRatio": 0.01,
+  "reconnects": 0,
+  "routingProtocol": "OSPF",
+  "metadata": {
+    "interfaceId": "eth0.20",
+    "vlanId": 20,
+    "routeMetric": 10
+  }
+}
+```
+
+For local-only deployments, run the gateway in `LOCAL_ONLY` or `LOCAL_LAN_ONLY` mode and keep remote
+connectors empty or disabled. For hybrid deployments, configure both local and remote connectors; the
+network intelligence engine can hold remote fanout during degraded WAN conditions while local
+processing continues. For cloud-control deployments, run the same APIs behind the cloud ingress
+layer and treat field gateways as devices with their own route and reachability state.
+
+The built-in UI is useful during installation, field debugging, and local operations. Enterprise
+systems can ignore it and call the headless APIs instead. Both modes use the same underlying state,
+so a custom dashboard can display the same topology, baselines, findings, actions, and route
+recommendations.
+
+## 22. Extension Guide
 
 To add a new protocol, create a new adapter, define its reliability and security level, implement
 decode and validation functions, map fields to `CanonicalEvent`, export the adapter, and add tests
@@ -765,7 +1029,7 @@ To add persistent storage, introduce it behind an interface. Do not scatter data
 trust, policy, protocol, and runtime modules. The current in-memory components are simple by design;
 they make the boundaries visible.
 
-## 22. Troubleshooting
+## 23. Troubleshooting
 
 If TypeScript fails, read the first error before changing code. Many failures come from exact
 optional property types, missing exports, or an import crossing the wrong package boundary.
@@ -793,7 +1057,7 @@ npm run lint
 Run it before and after changes. It tells you whether the repository moved from a known-good state to
 a failing state.
 
-## 23. Operational Verification Checklist
+## 24. Operational Verification Checklist
 
 Before deploying AEGIS as a gateway, SDK, sidecar, or cloud service, verify the following checks.
 
@@ -805,6 +1069,11 @@ capability scope, certificate issuance behavior, and credential delivery channel
 
 Multi-channel deployments must define segment ids, channel ids, maximum frame size, frame format,
 device identity requirements, and whether peer forwarding or cloud egress is allowed.
+
+Network intelligence deployments must decide whether the engine runs in `OBSERVE_ONLY`, `RECOMMEND`,
+or `AUTO_SAFE` mode. Production rollouts should start in observe-only mode, compare findings with
+known network behavior, then enable safe automatic actions for paths where local-first behavior is
+desired.
 
 Backend fanout must define local-only behavior, remote delivery retries, queue size monitoring, and
 failure visibility.
@@ -819,7 +1088,7 @@ Baseline learning must be enabled only for metrics that are expected to be stati
 statistical comparison. Explicit operator thresholds should override learned baselines for
 safety-critical traffic.
 
-## 24. Closing Model
+## 25. Closing Model
 
 AEGIS is a layered governance system. Identity answers who the device is. Protocol normalization
 answers what was reported. Runtime ordering answers what should be processed first. Trust scoring

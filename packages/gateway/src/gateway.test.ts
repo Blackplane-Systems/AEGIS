@@ -417,4 +417,147 @@ describe('EdgeGateway production ingress', () => {
 
     expect(result).toMatchObject({ status: 202, body: { reachable: false } });
   });
+
+  it('acts on learned lossy WAN conditions by keeping fanout local and recording actions', async () => {
+    const local = new MemoryBackendConnector('local', 'LOCAL');
+    const remote = new MemoryBackendConnector('cloud', 'REMOTE');
+    const config = createGatewayConfig({
+      credentials: [],
+      allowPlaintextFrom: ['mqtt'],
+      networkIntelligence: {
+        enabled: true,
+        mode: 'AUTO_SAFE',
+        learnEveryObservation: true,
+        actionLimit: 50,
+        thresholds: {
+          minSamples: 1,
+          highLatencyMs: 500,
+          highPacketLossRatio: 0.05,
+          highReconnects: 3,
+          latencyZScore: 3,
+          packetLossZScore: 3,
+          reconnectZScore: 3,
+          routeFlapWindowMs: 60_000,
+          routeFlapCount: 3,
+          staleNodeMs: 120_000,
+          preferredRouteScore: 0.7,
+          openWifiPlaintextRisk: 0.65,
+        },
+      },
+    });
+    const gateway = new EdgeGateway(config, [local, remote]);
+
+    const result = await gateway.ingest({
+      deviceId: 'wan-node-1',
+      transport: 'mqtt',
+      eventKind: 'TELEMETRY',
+      timestamp: '2026-01-01T00:00:13.000Z',
+      sequenceId: 'wan-1',
+      payload: { capability: 'status', value: 'degraded' },
+      metadata: {
+        segmentId: 'wan-bridge',
+        latencyMs: 900,
+        packetLossRatio: 0.4,
+        reconnects: 4,
+        routingProtocol: 'OSPF',
+      },
+      security: { mode: 'OPEN_BROADCAST' },
+    });
+
+    expect(result.backendDelivered).toBe(1);
+    expect(local.events).toHaveLength(1);
+    expect(remote.events).toHaveLength(0);
+    expect(gateway.networkIntelligenceSnapshot().findings.map((finding) => finding.type)).toEqual(
+      expect.arrayContaining(['HIGH_PACKET_LOSS', 'HIGH_LATENCY', 'HIGH_RECONNECT_RATE']),
+    );
+    expect(gateway.networkIntelligenceSnapshot().actions.map((action) => action.type)).toEqual(
+      expect.arrayContaining(['HOLD_REMOTE_FANOUT', 'THROTTLE_LOW_PRIORITY', 'PREFER_LOCAL_ROUTE']),
+    );
+  });
+
+  it('maps aggregator streams into downstream device routes and detects identity collisions', async () => {
+    const config = createGatewayConfig({
+      credentials: [],
+      allowPlaintextFrom: ['serial'],
+      networkSegments: [
+        {
+          id: 'rs485-bus-a',
+          kind: 'SERIAL_BUS',
+          allowCloudEgress: false,
+          allowPeerForwarding: true,
+        },
+      ],
+    });
+    const gateway = new EdgeGateway(config);
+
+    await gateway.ingest({
+      deviceId: 'aggregator-1',
+      transport: 'serial',
+      eventKind: 'TELEMETRY',
+      timestamp: '2026-01-01T00:00:14.000Z',
+      sequenceId: 'agg-1',
+      payload: { capability: 'batch', value: 2 },
+      metadata: {
+        segmentId: 'rs485-bus-a',
+        aggregatorId: 'aggregator-1',
+        embeddedDeviceIds: ['leaf-1', 'leaf-2', 'aggregator-1'],
+        routeMetric: 6,
+      },
+      security: { mode: 'OPEN_BROADCAST' },
+    });
+
+    expect(gateway.networkTopology().nodes.map((node) => node.id)).toEqual(
+      expect.arrayContaining(['aggregator-1', 'leaf-1', 'leaf-2']),
+    );
+    expect(gateway.routeTable('leaf-1')[0]).toMatchObject({
+      destination: 'leaf-1',
+      nextHop: 'aggregator-1',
+      protocol: 'SERIAL_MULTIPLEX',
+    });
+    expect(gateway.networkIntelligenceSnapshot().findings.map((finding) => finding.type)).toContain(
+      'AGGREGATOR_ID_COLLISION',
+    );
+  });
+
+  it('serves a built-in UI and headless network intelligence APIs behind operator auth', async () => {
+    const token = 'ui-token';
+    const config = createGatewayConfig({
+      credentials: [],
+      adminTokenSha256: hashGatewayAdminToken(token),
+    });
+    const gateway = new EdgeGateway(config);
+    const api = new GatewayHttpApi(gateway, config);
+    const headers = { authorization: `Bearer ${token}` };
+
+    expect(await api.handle({ method: 'GET', path: '/ui' })).toMatchObject({ status: 401 });
+    const ui = await api.handle({ method: 'GET', path: `/ui?token=${token}` });
+    expect(ui.status).toBe(200);
+    expect(ui.contentType).toContain('text/html');
+    expect(String(ui.body)).toContain('AEGIS Gateway Console');
+
+    const observed = await api.handle({
+      method: 'POST',
+      path: '/api/network/observe',
+      headers,
+      body: {
+        key: 'lan-a:ospf:uplink',
+        layers: ['L3_IPV4', 'L4_TCP', 'CONTROL_ROUTING'],
+        latencyMs: 10,
+        packetLossRatio: 0,
+        reconnects: 0,
+        routingProtocol: 'OSPF',
+      },
+    });
+    const intelligence = await api.handle({
+      method: 'GET',
+      path: '/api/network/intelligence',
+      headers,
+    });
+
+    expect(observed.status).toBe(202);
+    expect(intelligence).toMatchObject({
+      status: 200,
+      body: { enabled: true, topologyDigest: expect.any(Object) },
+    });
+  });
 });

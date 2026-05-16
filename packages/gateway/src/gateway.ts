@@ -19,6 +19,12 @@ import {
   ProbeTarget,
   ReachabilityProbe,
 } from './network-map';
+import {
+  NetworkControlDecision,
+  NetworkIntelligenceEngine,
+  NetworkIntelligenceObservation,
+  NetworkIntelligenceSnapshot,
+} from './network-intelligence';
 import { GatewayReplayGuard } from './replay';
 import {
   DeviceRegistrationPolicy,
@@ -39,7 +45,9 @@ export interface GatewayRuntimeEvent {
     | 'INGRESS_ACCEPTED'
     | 'INGRESS_REJECTED'
     | 'REGISTRATION_ACCEPTED'
-    | 'BASELINE_DEVIATION';
+    | 'BASELINE_DEVIATION'
+    | 'NETWORK_FINDING'
+    | 'NETWORK_ACTION';
   readonly deviceId: string;
   readonly transport: string;
   readonly timestamp: string;
@@ -55,6 +63,7 @@ export interface EdgeGatewayOptions {
   readonly channels?: readonly GatewayChannelDefinition[];
   readonly networkMap?: NetworkMap;
   readonly reachabilityProbe?: ReachabilityProbe;
+  readonly networkIntelligence?: NetworkIntelligenceEngine;
 }
 
 /** Optional production gateway for heterogeneous edge transports and backend fanout. */
@@ -70,6 +79,7 @@ export class EdgeGateway {
   private readonly channels: MultiChannelProcessor;
   private readonly networkMap: NetworkMap;
   private readonly reachabilityProbe: ReachabilityProbe;
+  private readonly networkIntelligence: NetworkIntelligenceEngine;
   private readonly registration: DeviceRegistrationService | undefined;
   private readonly discovery = new DeviceDiscoveryRegistry();
   private readonly twins = new DigitalTwinManager();
@@ -90,6 +100,8 @@ export class EdgeGateway {
     this.channels = new MultiChannelProcessor(options.channels ?? []);
     this.networkMap = options.networkMap ?? new NetworkMap(this.config.gatewayId);
     this.reachabilityProbe = options.reachabilityProbe ?? new NodeReachabilityProbe();
+    this.networkIntelligence =
+      options.networkIntelligence ?? new NetworkIntelligenceEngine(this.config.networkIntelligence);
     this.registration =
       options.registrationPolicy === undefined
         ? undefined
@@ -117,6 +129,12 @@ export class EdgeGateway {
       const event = this.toCanonicalEvent(envelope, security.payload, security.plaintextAccepted);
       this.observeEnvelopeNetwork(envelope);
       this.networkMap.observeEnvelope(envelope, this.config.networkSegments, event.timestamp);
+      const networkDecision = this.networkIntelligence.observeEnvelope(
+        envelope,
+        this.networkMap.snapshot(),
+        this.config,
+      );
+      await this.logNetworkDecision(networkDecision, envelope.deviceId, envelope.transport);
       const capability = capabilityFromPayload(security.payload);
       this.discovery.discover({
         deviceId: envelope.deviceId,
@@ -141,7 +159,10 @@ export class EdgeGateway {
         timestamp: event.timestamp,
       });
       const backendResults = await this.fanout.publish(event, {
-        localOnly: envelope.localOnly === true || this.config.mode === 'LOCAL_ONLY',
+        localOnly:
+          envelope.localOnly === true ||
+          this.config.mode === 'LOCAL_ONLY' ||
+          networkDecision.holdRemoteFanout,
       });
       return {
         accepted: true,
@@ -227,6 +248,14 @@ export class EdgeGateway {
   /** Observes a network condition sample and learns standalone baselines. */
   public observeNetworkCondition(observation: NetworkConditionObservation): unknown {
     const report = this.baseline.observe(observation);
+    const findings = this.networkIntelligence.observeCondition({
+      key: observation.key,
+      layers: ['APPLICATION'],
+      latencyMs: observation.latencyMs,
+      packetLossRatio: observation.packetLossRatio,
+      reconnects: observation.reconnects,
+      ...(observation.observedAt === undefined ? {} : { observedAt: observation.observedAt }),
+    });
     if (report.latencyDeviation || report.packetLossDeviation || report.reconnectDeviation) {
       this.logger.append({
         type: 'BASELINE_DEVIATION',
@@ -234,7 +263,14 @@ export class EdgeGateway {
         attributes: { ...report },
       });
     }
-    return report;
+    for (const finding of findings) {
+      this.logger.append({
+        type: 'NETWORK_FINDING',
+        message: finding.message,
+        attributes: { ...finding },
+      });
+    }
+    return { ...report, intelligenceFindings: findings };
   }
 
   /** Retries failed backend writes. */
@@ -256,6 +292,9 @@ export class EdgeGateway {
       channels: this.channels.list().length,
       networkNodes: this.networkMap.snapshot().nodes.length,
       networkRoutes: this.networkMap.routeTable().length,
+      networkFindings: this.networkIntelligence.snapshot(this.networkMap.snapshot()).findings
+        .length,
+      networkActions: this.networkIntelligence.snapshot(this.networkMap.snapshot()).actions.length,
     };
   }
 
@@ -331,6 +370,29 @@ export class EdgeGateway {
     return this.networkMap.routeTable(destination);
   }
 
+  /** Returns learned network intelligence, blockers, actions, and route recommendations. */
+  public networkIntelligenceSnapshot(): NetworkIntelligenceSnapshot {
+    return this.networkIntelligence.snapshot(this.networkMap.snapshot());
+  }
+
+  /** Accepts external network observations from SDK callers, agents, or sidecar APIs. */
+  public observeNetworkIntelligence(
+    observation: NetworkIntelligenceObservation,
+  ): readonly unknown[] {
+    const findings = this.networkIntelligence.observeCondition(
+      observation,
+      this.networkMap.snapshot(),
+    );
+    for (const finding of findings) {
+      this.logger.append({
+        type: 'NETWORK_FINDING',
+        message: finding.message,
+        attributes: { ...finding },
+      });
+    }
+    return findings;
+  }
+
   /** Probes node reachability and updates topology state. */
   public async probeReachability(target: ProbeTarget): Promise<ProbeResult> {
     const result = await this.reachabilityProbe.probe(target);
@@ -345,7 +407,51 @@ export class EdgeGateway {
       message: result.reachable ? 'Reachability probe succeeded' : 'Reachability probe failed',
       attributes: { ...result },
     });
+    await this.logNetworkDecision(
+      this.networkIntelligence.observeProbe(result),
+      target.nodeId,
+      target.protocol,
+    );
     return result;
+  }
+
+  private async logNetworkDecision(
+    decision: NetworkControlDecision,
+    deviceId: string,
+    transport: string,
+  ): Promise<void> {
+    for (const finding of decision.findings) {
+      this.logger.append({
+        type: 'NETWORK_FINDING',
+        deviceId,
+        transport,
+        message: finding.message,
+        attributes: { ...finding },
+      });
+      await this.events.publish({
+        type: 'NETWORK_FINDING',
+        deviceId,
+        transport,
+        timestamp: finding.observedAt,
+        reason: finding.type,
+      });
+    }
+    for (const action of decision.actions) {
+      this.logger.append({
+        type: 'NETWORK_ACTION',
+        deviceId,
+        transport,
+        message: action.reason,
+        attributes: { ...action },
+      });
+      await this.events.publish({
+        type: 'NETWORK_ACTION',
+        deviceId,
+        transport,
+        timestamp: action.createdAt,
+        reason: action.type,
+      });
+    }
   }
 
   private toCanonicalEvent(

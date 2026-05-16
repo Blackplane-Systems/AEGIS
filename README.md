@@ -2,8 +2,8 @@
 
 AEGIS is a production-grade foundation for trusted edge device fleets. This repository implements
 device identity, trust scoring, protocol normalisation, deterministic local runtime behavior, policy
-evaluation, actuation gating, fleet intelligence, simulation, authenticated APIs, and append-only
-audit infrastructure.
+evaluation, actuation gating, fleet intelligence, simulation, adaptive gateway networking,
+authenticated APIs, and append-only audit infrastructure.
 
 For the full user and developer reference, read [`learning.md`](./learning.md). It provides
 architecture explanations, flow diagrams, command walkthroughs, package internals, testing strategy,
@@ -36,6 +36,11 @@ packages/runtime
   ActuationSafetyGate -> StructuredAuditLog
   Reconciliation for local/cloud state
 
+packages/gateway
+  UniversalIngressEnvelope -> security/replay checks -> NetworkMap
+  NetworkIntelligenceEngine -> blocker classification -> safe actions
+  Built-in operator UI + headless gateway APIs
+
 packages/cli
   aegis enroll/status/simulate-event/audit/policy check
 ```
@@ -48,6 +53,7 @@ core
   <- protocol
   <- policy
   <- runtime
+       <- gateway
        <- cli
 
 integration tests compose trust + protocol + policy + runtime
@@ -85,6 +91,44 @@ Policy dry run example:
 node dist/packages/cli/src/index.js policy check rule.json "{\"trust\":0.2}"
 ```
 
+## Gateway And Network Intelligence
+
+AEGIS can run embedded as an SDK, as a standalone Raspberry Pi style gateway, as a sidecar beside an
+existing backend, as a local-only LAN controller, or as a cloud control-plane component. The gateway
+accepts universal ingress envelopes from MQTT, HTTP, WebSocket, BLE bridges, LoRa concentrators,
+ESP-NOW bridges, serial streams, RS485-style aggregators, and broadcast UDP.
+
+The adaptive network intelligence layer observes topology, reachability, route metrics, packet loss,
+latency, reconnects, routing metadata, VLAN or NAT symptoms, DHCP/SLAAC churn, open WiFi broadcast
+traffic, and aggregator payload structure. It maintains learned baselines, classifies blockers such
+as firewall drops or missing port forwarding, scores routes, and emits safe action plans. In
+`AUTO_SAFE` mode the gateway can hold remote fanout, prefer local routes, or throttle low-priority
+traffic while preserving local processing.
+
+After building, a standalone gateway process can be started with:
+
+```bash
+set AEGIS_GATEWAY_ADMIN_TOKEN=local-dev-admin
+npm run gateway
+```
+
+The built-in operator UI is served at:
+
+```text
+http://127.0.0.1:8787/ui?token=local-dev-admin
+```
+
+Headless integrations can use the authenticated network endpoints:
+
+```text
+GET  /api/network/map
+GET  /api/network/routes
+GET  /api/network/intelligence
+GET  /api/network/actions
+POST /api/network/probe
+POST /api/network/observe
+```
+
 ## Test Coverage
 
 - Trust identity tests cover Ed25519 generation, certificate issuance, expiry, rotation, Bayesian
@@ -97,3 +141,6 @@ node dist/packages/cli/src/index.js policy check rule.json "{\"trust\":0.2}"
   resolution safety axioms.
 - Integration tests cover the end-to-end happy path plus quarantined actuation, missing quorum, and
   reconnect reconciliation.
+- Gateway tests cover mixed transport ingress, backend fanout, registration, replay rejection,
+  network topology, reachability probing, adaptive network actions, aggregator downstream routing,
+  and the built-in authenticated UI.

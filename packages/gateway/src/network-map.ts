@@ -225,22 +225,18 @@ export class NetworkMap {
     node: Omit<NetworkNode, 'reachability'> & { readonly reachability?: ReachabilityState },
   ): NetworkNode {
     const current = this.nodes.get(node.id);
+    const label = node.label ?? current?.label;
+    const segmentId = node.segmentId ?? current?.segmentId;
+    const addresses = node.addresses ?? current?.addresses;
+    const lastSeen = node.lastSeen ?? current?.lastSeen;
     const merged: NetworkNode = {
       id: node.id,
       kind: node.kind,
       reachability: node.reachability ?? current?.reachability ?? 'UNKNOWN',
-      ...((node.label ?? current?.label === undefined)
-        ? {}
-        : { label: node.label ?? current?.label }),
-      ...((node.segmentId ?? current?.segmentId === undefined)
-        ? {}
-        : { segmentId: node.segmentId ?? current?.segmentId }),
-      ...((node.addresses ?? current?.addresses === undefined)
-        ? {}
-        : { addresses: node.addresses ?? current?.addresses }),
-      ...((node.lastSeen ?? current?.lastSeen === undefined)
-        ? {}
-        : { lastSeen: node.lastSeen ?? current?.lastSeen }),
+      ...(label === undefined ? {} : { label }),
+      ...(segmentId === undefined ? {} : { segmentId }),
+      ...(addresses === undefined ? {} : { addresses }),
+      ...(lastSeen === undefined ? {} : { lastSeen }),
       metadata: { ...(current?.metadata ?? {}), ...(node.metadata ?? {}) },
     };
     this.nodes.set(node.id, merged);
@@ -323,6 +319,7 @@ export class NetworkMap {
       lastUpdated: observedAt,
       source: 'ingress_observation',
     });
+    this.observeAggregatorPayloads(envelope, segmentId, protocol, linkKind, observedAt);
   }
 
   /** Returns a deterministic topology snapshot. */
@@ -358,6 +355,73 @@ export class NetworkMap {
       .map((id) => this.nodes.get(id))
       .filter((node): node is NetworkNode => node !== undefined)
       .sort((left, right) => left.id.localeCompare(right.id));
+  }
+
+  private observeAggregatorPayloads(
+    envelope: UniversalIngressEnvelope,
+    segmentId: string,
+    protocol: RoutingProtocol,
+    linkKind: NetworkLinkKind,
+    observedAt: string,
+  ): void {
+    const aggregatorId =
+      stringMetadata(envelope.metadata?.aggregatorId ?? envelope.metadata?.gatewayDeviceId) ??
+      (arrayMetadata(envelope.metadata?.embeddedDeviceIds).length > 0
+        ? envelope.deviceId
+        : undefined);
+    const embeddedDeviceIds = arrayMetadata(
+      envelope.metadata?.embeddedDeviceIds ?? envelope.metadata?.devices,
+    );
+    if (aggregatorId === undefined || embeddedDeviceIds.length === 0) {
+      return;
+    }
+    this.observeNode({
+      id: aggregatorId,
+      kind: 'DEVICE',
+      segmentId,
+      reachability: 'REACHABLE',
+      lastSeen: observedAt,
+      metadata: { role: 'AGGREGATOR', transport: envelope.transport },
+    });
+    this.observeLink({
+      id: `${segmentId}:${aggregatorId}:${envelope.transport}:aggregator`,
+      from: segmentId,
+      to: aggregatorId,
+      kind: linkKind,
+      routingProtocol: protocol,
+      cost: numberMetadata(envelope.metadata?.routeCost) ?? defaultCost(linkKind),
+      lastObserved: observedAt,
+      metadata: { role: 'AGGREGATOR_UPLINK' },
+    });
+    for (const embeddedDeviceId of embeddedDeviceIds) {
+      this.observeNode({
+        id: embeddedDeviceId,
+        kind: 'DEVICE',
+        segmentId,
+        reachability: 'REACHABLE',
+        lastSeen: observedAt,
+        metadata: { viaAggregator: aggregatorId },
+      });
+      this.observeLink({
+        id: `${aggregatorId}:${embeddedDeviceId}:embedded`,
+        from: aggregatorId,
+        to: embeddedDeviceId,
+        kind: 'SERIAL',
+        routingProtocol: 'SERIAL_MULTIPLEX',
+        cost: defaultCost('SERIAL'),
+        lastObserved: observedAt,
+        metadata: { role: 'EMBEDDED_PAYLOAD' },
+      });
+      this.upsertRoute({
+        destination: embeddedDeviceId,
+        nextHop: aggregatorId,
+        interfaceId: stringMetadata(envelope.metadata?.interfaceId) ?? envelope.transport,
+        protocol: 'SERIAL_MULTIPLEX',
+        metric: numberMetadata(envelope.metadata?.routeMetric) ?? defaultCost('SERIAL'),
+        lastUpdated: observedAt,
+        source: 'aggregator_payload',
+      });
+    }
   }
 }
 
@@ -451,4 +515,11 @@ function stringMetadata(value: unknown): string | undefined {
 
 function numberMetadata(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function arrayMetadata(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
 }

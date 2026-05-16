@@ -6,7 +6,9 @@ export type GatewayLogType =
   | 'REGISTRATION_REJECTED'
   | 'BACKEND_DELIVERY'
   | 'BASELINE_DEVIATION'
-  | 'ATTACK_LEARNED';
+  | 'ATTACK_LEARNED'
+  | 'NETWORK_FINDING'
+  | 'NETWORK_ACTION';
 
 /** Structured gateway log record. */
 export interface GatewayLogRecord {

@@ -1,5 +1,6 @@
 import { createServer, IncomingMessage, Server, ServerResponse } from 'node:http';
 import { EdgeGateway } from './gateway';
+import { renderGatewayDashboard } from './gateway-dashboard';
 import { sha256Hex, verifyAdminToken } from './security';
 import { GatewayConfig, UniversalIngressEnvelope } from './types';
 
@@ -15,6 +16,7 @@ export interface GatewayApiRequest {
 export interface GatewayApiResponse {
   readonly status: number;
   readonly body: unknown;
+  readonly contentType?: string;
 }
 
 /** Authenticated HTTP-style control plane for the optional edge gateway process. */
@@ -65,6 +67,23 @@ export class GatewayHttpApi {
           body: { error: error instanceof Error ? error.message : String(error) },
         };
       }
+    }
+    if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/ui')) {
+      if (!this.config.ui.enabled) {
+        return { status: 404, body: { error: 'ui_disabled' } };
+      }
+      if (this.config.ui.requireAuth && !this.isAuthorized(request)) {
+        return { status: 401, body: { error: 'unauthorized' } };
+      }
+      return {
+        status: 200,
+        contentType: 'text/html; charset=utf-8',
+        body: renderGatewayDashboard({
+          health: this.gateway.health(),
+          topology: this.gateway.networkTopology(),
+          intelligence: this.gateway.networkIntelligenceSnapshot(),
+        }),
+      };
     }
     if (!this.isAuthorized(request)) {
       return { status: 401, body: { error: 'unauthorized' } };
@@ -131,6 +150,15 @@ export class GatewayHttpApi {
     if (request.method === 'GET' && url.pathname === '/api/network/map') {
       return { status: 200, body: this.gateway.networkTopology() };
     }
+    if (request.method === 'GET' && url.pathname === '/api/network/intelligence') {
+      return { status: 200, body: this.gateway.networkIntelligenceSnapshot() };
+    }
+    if (request.method === 'GET' && url.pathname === '/api/network/actions') {
+      return { status: 200, body: this.gateway.networkIntelligenceSnapshot().actions };
+    }
+    if (request.method === 'POST' && url.pathname === '/api/network/observe') {
+      return { status: 202, body: this.gateway.observeNetworkIntelligence(request.body as never) };
+    }
     if (request.method === 'GET' && url.pathname === '/api/network/routes') {
       return {
         status: 200,
@@ -150,8 +178,10 @@ export class GatewayHttpApi {
     if (this.config.publicHealth && request.method === 'GET' && request.path === '/api/health') {
       return true;
     }
+    const url = new URL(request.path, 'http://aegis.gateway');
     const header = request.headers?.authorization ?? request.headers?.Authorization;
-    const token = header?.startsWith('Bearer ') ? header.slice('Bearer '.length) : undefined;
+    const queryToken = url.searchParams.get('token') ?? undefined;
+    const token = header?.startsWith('Bearer ') ? header.slice('Bearer '.length) : queryToken;
     return verifyAdminToken(token, this.config.adminTokenSha256);
   }
 }
@@ -189,8 +219,12 @@ async function handleNodeRequest(
       headers: headersOf(request.headers),
       ...(body === undefined ? {} : { body }),
     });
-    response.writeHead(result.status, { 'content-type': 'application/json' });
-    response.end(JSON.stringify(result.body));
+    response.writeHead(result.status, { 'content-type': result.contentType ?? 'application/json' });
+    response.end(
+      result.contentType?.startsWith('text/html')
+        ? String(result.body)
+        : JSON.stringify(result.body),
+    );
   } catch (error) {
     response.writeHead(400, { 'content-type': 'application/json' });
     response.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));

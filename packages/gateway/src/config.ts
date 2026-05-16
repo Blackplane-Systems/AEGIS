@@ -1,4 +1,8 @@
 import { GatewayConfig } from './types';
+import {
+  DEFAULT_NETWORK_INTELLIGENCE_CONFIG,
+  DEFAULT_NETWORK_INTELLIGENCE_THRESHOLDS,
+} from './network-intelligence';
 
 /** Default replay window for constrained edge device envelopes. */
 export const DEFAULT_GATEWAY_REPLAY_WINDOW_MS = 120_000;
@@ -35,6 +39,19 @@ export function createGatewayConfig(
       maxFrameBytes: 4_096,
       requireDeviceIdentityInPayload: true,
       autoBaseline: true,
+    },
+    networkIntelligence: {
+      ...DEFAULT_NETWORK_INTELLIGENCE_CONFIG,
+      ...(overrides.networkIntelligence ?? {}),
+      thresholds: {
+        ...DEFAULT_NETWORK_INTELLIGENCE_THRESHOLDS,
+        ...(overrides.networkIntelligence?.thresholds ?? {}),
+      },
+    },
+    ui: overrides.ui ?? {
+      enabled: true,
+      requireAuth: true,
+      title: 'AEGIS Gateway Console',
     },
     ...(overrides.adminTokenSha256 === undefined
       ? {}

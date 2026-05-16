@@ -1,4 +1,5 @@
 import { CanonicalEvent } from '../../protocol/src';
+import type { NetworkIntelligenceConfig } from './network-intelligence';
 
 /** Physical or logical ingress transport used by edge devices and gateways. */
 export type EdgeTransport =
@@ -110,6 +111,15 @@ export interface GatewayConfig {
   readonly credentials: readonly GatewayDeviceCredential[];
   readonly networkSegments: readonly NetworkSegmentConfig[];
   readonly channelDefaults: ChannelProcessingDefaults;
+  readonly networkIntelligence: NetworkIntelligenceConfig;
+  readonly ui: GatewayUiConfig;
+}
+
+/** Built-in operator UI configuration for standalone and sidecar deployments. */
+export interface GatewayUiConfig {
+  readonly enabled: boolean;
+  readonly requireAuth: boolean;
+  readonly title: string;
 }
 
 /** Logical LAN, cloud, or serial segment used for routing and policy. */
