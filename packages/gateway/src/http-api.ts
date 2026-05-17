@@ -153,6 +153,9 @@ export class GatewayHttpApi {
     if (request.method === 'GET' && url.pathname === '/api/network/intelligence') {
       return { status: 200, body: this.gateway.networkIntelligenceSnapshot() };
     }
+    if (request.method === 'GET' && url.pathname === '/api/readiness') {
+      return { status: 200, body: this.gateway.readinessReport() };
+    }
     if (request.method === 'GET' && url.pathname === '/api/network/actions') {
       return { status: 200, body: this.gateway.networkIntelligenceSnapshot().actions };
     }

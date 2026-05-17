@@ -24,5 +24,5 @@ the useful behavior was reimplemented as AEGIS-native TypeScript modules.
 - JWT admin authentication is weaker than the existing Ed25519 operator token flow, so it was not
   included.
 - The FastAPI/React stack was not adopted because AEGIS remains a TypeScript Node monorepo.
-- SQLite persistence and browser WebSocket streaming are useful future candidates, but they require
+- SQLite persistence and browser WebSocket streaming are possible future extensions, but they require
   a broader storage and transport decision than this inclusion pass.

@@ -10,7 +10,17 @@ export type EdgeTransport =
   | 'lora'
   | 'serial'
   | 'websocket'
-  | 'broadcast_udp';
+  | 'broadcast_udp'
+  | 'coap'
+  | 'modbus_tcp'
+  | 'modbus_rtu'
+  | 'opcua'
+  | 'bacnet_ip'
+  | 'can_bus'
+  | 'zigbee'
+  | 'dnp3'
+  | 'profinet'
+  | 'ethernet_ip';
 
 /** Common device profiles used to derive conservative transport/security defaults. */
 export type DeviceProfile =
@@ -19,6 +29,9 @@ export type DeviceProfile =
   | 'ESP8266'
   | 'ARDUINO'
   | 'LORA_NODE'
+  | 'PLC'
+  | 'BUILDING_CONTROLLER'
+  | 'FIELD_BUS_GATEWAY'
   | 'GENERIC_GATEWAY';
 
 /** Ingress security mode declared by an edge message envelope. */

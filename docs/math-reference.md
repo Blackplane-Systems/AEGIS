@@ -1,6 +1,6 @@
 # AEGIS Math Reference
 
-This document lists the implemented formulae implemented in code.
+Formulae implemented in code.
 
 ## Trust
 

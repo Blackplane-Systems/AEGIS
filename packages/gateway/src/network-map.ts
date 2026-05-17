@@ -22,6 +22,15 @@ export type NetworkLinkKind =
   | 'ESP_NOW'
   | 'WEBSOCKET'
   | 'BROADCAST'
+  | 'COAP'
+  | 'MODBUS'
+  | 'OPCUA'
+  | 'BACNET'
+  | 'CAN'
+  | 'ZIGBEE'
+  | 'DNP3'
+  | 'PROFINET'
+  | 'ETHERNET_IP'
   | 'BACKEND'
   | 'UNKNOWN';
 
@@ -36,6 +45,15 @@ export type RoutingProtocol =
   | 'LORA_GATEWAY'
   | 'ESP_NOW_PEER'
   | 'SERIAL_MULTIPLEX'
+  | 'COAP_PROXY'
+  | 'MODBUS_GATEWAY'
+  | 'OPCUA_SERVER'
+  | 'BACNET_ROUTER'
+  | 'CAN_GATEWAY'
+  | 'ZIGBEE_COORDINATOR'
+  | 'DNP3_OUTSTATION'
+  | 'PROFINET_IO'
+  | 'ETHERNET_IP_CIP'
   | 'UNKNOWN';
 
 /** Reachability state for a node or route target. */
@@ -440,7 +458,16 @@ export function identifyRoutingProtocol(
     explicit === 'MQTT_BROKER' ||
     explicit === 'LORA_GATEWAY' ||
     explicit === 'ESP_NOW_PEER' ||
-    explicit === 'SERIAL_MULTIPLEX'
+    explicit === 'SERIAL_MULTIPLEX' ||
+    explicit === 'COAP_PROXY' ||
+    explicit === 'MODBUS_GATEWAY' ||
+    explicit === 'OPCUA_SERVER' ||
+    explicit === 'BACNET_ROUTER' ||
+    explicit === 'CAN_GATEWAY' ||
+    explicit === 'ZIGBEE_COORDINATOR' ||
+    explicit === 'DNP3_OUTSTATION' ||
+    explicit === 'PROFINET_IO' ||
+    explicit === 'ETHERNET_IP_CIP'
   ) {
     return explicit;
   }
@@ -455,6 +482,33 @@ export function identifyRoutingProtocol(
   }
   if (transport === 'serial') {
     return 'SERIAL_MULTIPLEX';
+  }
+  if (transport === 'coap') {
+    return 'COAP_PROXY';
+  }
+  if (transport === 'modbus_tcp' || transport === 'modbus_rtu') {
+    return 'MODBUS_GATEWAY';
+  }
+  if (transport === 'opcua') {
+    return 'OPCUA_SERVER';
+  }
+  if (transport === 'bacnet_ip') {
+    return 'BACNET_ROUTER';
+  }
+  if (transport === 'can_bus') {
+    return 'CAN_GATEWAY';
+  }
+  if (transport === 'zigbee') {
+    return 'ZIGBEE_COORDINATOR';
+  }
+  if (transport === 'dnp3') {
+    return 'DNP3_OUTSTATION';
+  }
+  if (transport === 'profinet') {
+    return 'PROFINET_IO';
+  }
+  if (transport === 'ethernet_ip') {
+    return 'ETHERNET_IP_CIP';
   }
   if (transport === 'ble' || transport === 'broadcast_udp') {
     return 'MESH';
@@ -488,16 +542,29 @@ function linkKindFromTransport(transport: EdgeTransport): NetworkLinkKind {
     serial: 'SERIAL',
     websocket: 'WEBSOCKET',
     broadcast_udp: 'BROADCAST',
+    coap: 'COAP',
+    modbus_tcp: 'MODBUS',
+    modbus_rtu: 'MODBUS',
+    opcua: 'OPCUA',
+    bacnet_ip: 'BACNET',
+    can_bus: 'CAN',
+    zigbee: 'ZIGBEE',
+    dnp3: 'DNP3',
+    profinet: 'PROFINET',
+    ethernet_ip: 'ETHERNET_IP',
   };
   return map[transport];
 }
 
 function defaultCost(kind: NetworkLinkKind): number {
-  if (kind === 'SERIAL' || kind === 'LORA') {
+  if (kind === 'SERIAL' || kind === 'LORA' || kind === 'MODBUS' || kind === 'CAN') {
     return 20;
   }
-  if (kind === 'BLE' || kind === 'ESP_NOW') {
+  if (kind === 'BLE' || kind === 'ESP_NOW' || kind === 'ZIGBEE') {
     return 15;
+  }
+  if (kind === 'PROFINET' || kind === 'ETHERNET_IP') {
+    return 5;
   }
   return 10;
 }

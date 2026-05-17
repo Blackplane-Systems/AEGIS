@@ -31,6 +31,7 @@ import {
   DeviceRegistrationRequest,
   DeviceRegistrationService,
 } from './registration';
+import { GatewayReadinessAdvisor, ReadinessReport } from './readiness';
 import { GatewayCredentialRegistry, verifyIngressSecurity } from './security';
 import {
   BackendConnector,
@@ -80,6 +81,7 @@ export class EdgeGateway {
   private readonly networkMap: NetworkMap;
   private readonly reachabilityProbe: ReachabilityProbe;
   private readonly networkIntelligence: NetworkIntelligenceEngine;
+  private readonly readiness = new GatewayReadinessAdvisor();
   private readonly registration: DeviceRegistrationService | undefined;
   private readonly discovery = new DeviceDiscoveryRegistry();
   private readonly twins = new DigitalTwinManager();
@@ -280,6 +282,7 @@ export class EdgeGateway {
 
   /** Returns gateway health suitable for authenticated operator APIs. */
   public health(): Record<string, unknown> {
+    const readiness = this.readinessReport();
     return {
       status: 'ok',
       mode: this.config.mode,
@@ -295,6 +298,8 @@ export class EdgeGateway {
       networkFindings: this.networkIntelligence.snapshot(this.networkMap.snapshot()).findings
         .length,
       networkActions: this.networkIntelligence.snapshot(this.networkMap.snapshot()).actions.length,
+      readinessScore: readiness.score,
+      readinessCriticalGaps: readiness.criticalGaps.length,
     };
   }
 
@@ -373,6 +378,16 @@ export class EdgeGateway {
   /** Returns learned network intelligence, blockers, actions, and route recommendations. */
   public networkIntelligenceSnapshot(): NetworkIntelligenceSnapshot {
     return this.networkIntelligence.snapshot(this.networkMap.snapshot());
+  }
+
+  /** Returns production readiness checks derived from config, topology, and active findings. */
+  public readinessReport(): ReadinessReport {
+    const topology = this.networkMap.snapshot();
+    return this.readiness.evaluate(
+      this.config,
+      topology,
+      this.networkIntelligence.snapshot(topology),
+    );
   }
 
   /** Accepts external network observations from SDK callers, agents, or sidecar APIs. */

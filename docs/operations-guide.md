@@ -51,7 +51,7 @@ Authorization: Bearer <token>
 
 Every API route requires the signed token. Write endpoints are rate-limited per operator.
 
-Available routes:
+Routes:
 
 - `GET /devices`
 - `GET /devices/:id`
