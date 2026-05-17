@@ -318,6 +318,86 @@ JSON webhook-style events. The raw serial adapter handles line-delimited JSON. T
 adapters normalize gateway-style telemetry. Additional adapters handle UDP datagrams, LoRa packets,
 ESP-NOW frames, and network control-plane observations.
 
+The protocol package also carries a public `ProtocolProfile` catalog. This catalog is intentionally
+separate from the adapters. An adapter answers "how do I normalize this payload?" A profile answers
+"what kind of operational and security behavior should operators expect from this protocol?" The
+profile records family, direction, reliability, default security posture, typical ports, identity
+fields, whether broadcast is normal, whether commands are supported, and which controls should be
+configured before production use.
+
+```mermaid
+flowchart LR
+    A[Native frame or message] --> B[Protocol adapter]
+    A --> C[Protocol profile classifier]
+    B --> D[CanonicalEvent]
+    C --> E[Operational controls]
+    D --> F[Runtime, policy, audit, gateway]
+    E --> G[Readiness report]
+```
+
+The public protocol coverage includes:
+
+```text
+MQTT              brokered IoT telemetry and commands
+HTTP webhook      signed request/response device ingress
+WebSocket         long-lived telemetry and command sessions
+CoAP              constrained UDP resources, usually DTLS or OSCORE protected
+UDP datagram      local broadcast or unicast telemetry
+Raw serial        line-delimited local frames
+LoRa              long-range constrained node packets via a concentrator
+ESP-NOW           low-latency peer frames bridged by ESP-class devices
+BLE               low-power telemetry bridged by a gateway
+Modbus TCP        PLC register access over TCP
+Modbus RTU        shared serial fieldbus frames
+OPC UA PubSub     industrial DataValue publishing
+BACnet/IP         building automation object traffic
+DNP3              outstation point and control events
+CAN bus           local fieldbus frames
+Zigbee            coordinator-normalized mesh cluster traffic
+PROFINET          passive IO or DCP metadata observations
+EtherNet/IP       CIP object observations
+Network control   ARP, NDP, IGMP, DHCP, SLAAC, routing, multicast observations
+```
+
+The industrial and building-automation adapters are gateway-oriented. AEGIS is not trying to become
+a full PLC driver, BACnet stack, or CAN driver in this package. Instead, a local bridge, agent, or
+existing backend can represent the native frame as a structured object, and AEGIS normalizes it into
+the canonical model. This keeps the governance layer independent of vendor-specific wire parsers
+while still preserving the metadata needed for policy, trust, replay, logging, and operator review.
+
+For example, a Modbus TCP gateway event can be represented as:
+
+```json
+{
+  "unitId": 11,
+  "timestamp": "2026-01-01T00:00:04.000Z",
+  "transactionId": "m1",
+  "functionCode": 3,
+  "registers": [120, 121]
+}
+```
+
+After normalization the canonical payload contains `capability: "modbus_registers"`, `value:
+[120, 121]`, and metadata such as `unitId` and `functionCode`. A policy can then distinguish a
+read-only holding-register observation from a write function code before any actuation gate is
+reached.
+
+An OPC UA PubSub observation can preserve a node id:
+
+```json
+{
+  "publisherId": "line-a",
+  "nodeId": "ns=2;s=Pump.Speed",
+  "timestamp": "2026-01-01T00:00:05.000Z",
+  "sequenceId": "o1",
+  "value": 1440
+}
+```
+
+The resulting canonical event uses `capability: "opcua_datavalue"` and keeps `nodeId` in metadata.
+The same pattern applies to BACnet object ids, CAN arbitration ids, DNP3 outstation points,
+PROFINET station names, Zigbee cluster ids, and EtherNet/IP service names.
+
 Control-plane normalization matters because some failures are visible before application telemetry
 is decoded. ARP and NDP can reveal address resolution problems. IGMP and MLD can reveal multicast
 membership or discovery patterns. DHCP and SLAAC can reveal address churn. Routing observations such
@@ -339,6 +419,13 @@ intelligence, policy, and operator diagnostics without giving protocol adapters 
 The normalized event retains the subject device, observer metadata, control protocol, source or
 destination address fields when present, VLAN id, interface id, group address, route metric, and any
 additional metadata supplied by the gateway agent.
+
+Protocol classification is available before full runtime ingestion. If a gateway agent sees TCP port
+502 or payload fields such as `unitId` and `functionCode`, AEGIS can classify the observation as
+Modbus TCP with medium confidence. If explicit metadata says `protocol: "bacnet"`, it resolves to
+the BACnet/IP profile with high confidence. This classification is useful for readiness checks,
+operator dashboards, and backend services that need to decide whether a new stream is covered by
+known controls.
 
 Reliability is modeled as a lattice.
 
@@ -650,15 +737,25 @@ The engine understands symptoms from several layers of a real network stack. Lin
 media observations include Ethernet, WiFi, BLE, LoRa, ESP-NOW, broadcast traffic, and serial buses.
 Network-layer observations include IPv4, IPv6, ARP, NDP, VLAN information, DHCPv4, DHCPv6, and SLAAC
 metadata. Transport and application observations include TCP, UDP, MQTT, HTTP, WebSocket, serial
-payload framing, and application heartbeat probes. Routing metadata can identify static routes,
-OSPF, BGP, RIP, mesh paths, MQTT broker forwarding, LoRa gateways, ESP-NOW peers, and serial
-multiplexing.
+payload framing, CoAP, Modbus, OPC UA, BACnet, DNP3, CAN, PROFINET, EtherNet/IP, and application
+heartbeat probes. Routing metadata can identify static routes, OSPF, BGP, RIP, mesh paths, MQTT
+broker forwarding, LoRa gateways, ESP-NOW peers, CoAP proxies, Modbus gateways, OPC UA servers,
+BACnet routers, CAN gateways, Zigbee coordinators, DNP3 outstations, PROFINET IO, EtherNet/IP CIP,
+and serial multiplexing.
 
 AEGIS treats network behavior as both a blocker source and an information source. A timeout can mean
 a firewall drop. A connection refusal can mean a missing service binding or port-forwarding rule.
 Frequent route metric changes can indicate a route flap. Address churn can indicate a DHCP or SLAAC
 stability problem. Plaintext broadcast on an open WiFi segment can be accepted only when policy
 allows it, but the network intelligence layer still marks it as operational risk.
+
+The control-plane detector also handles production network symptoms that often explain failures in
+mixed IoT and OT deployments. High multicast packet rates can produce a `MULTICAST_STORM` finding.
+An unexpected DHCP authority or server transition can produce `ROGUE_DHCP`. ARP conflicts or
+duplicate MAC evidence can produce `ARP_SPOOFING`. Explicit anomaly scores from an external network
+agent can produce `CONTROL_PLANE_ANOMALY`. Legacy OT traffic such as plaintext Modbus, BACnet, CAN,
+PROFINET, or EtherNet/IP can produce `OT_PLAINTEXT_PROTOCOL` unless it is protected by an
+authenticated gateway boundary.
 
 The action model is intentionally constrained. The gateway does not automatically rewrite external
 routers or firewall rules. It can safely hold remote fanout, prefer a local route, throttle
@@ -678,6 +775,7 @@ GET  /api/network/map
 GET  /api/network/routes
 GET  /api/network/intelligence
 GET  /api/network/actions
+GET  /api/readiness
 POST /api/network/probe
 POST /api/network/observe
 ```
@@ -705,6 +803,23 @@ findings, and recent action plans. The UI is not a separate authority layer. It 
 state returned by the headless APIs, so production operators can use either the built-in console or
 their own dashboard.
 
+The readiness endpoint evaluates whether the current gateway configuration is acceptable for
+production-style deployment. It checks identity configuration, operator API authentication,
+plaintext transport exposure, secure replay settings, network segmentation, protocol coverage,
+adaptive network intelligence, backend binding, and event-retention depth. The output is a numeric
+score plus explicit `PASS`, `WARN`, and `FAIL` checks. CI systems can reject a deployment when
+`criticalGaps` is non-empty, while dashboards can show warnings without blocking local-only testing.
+
+```text
+GET /api/readiness
+```
+
+The readiness report is deliberately advisory except where a caller chooses to make it a gate. AEGIS
+continues to accept valid local traffic if the report contains warnings, because local development,
+factory commissioning, and incident recovery often need partial operation. Production orchestrators
+can enforce stricter rules by reading the same report before allowing remote fanout or cloud
+registration.
+
 ## 17. Fleet API
 
 The API package provides a dependency-free REST-style interface for tests and embedding. It accepts
@@ -715,7 +830,7 @@ The API can list devices, show device detail, return audit records, return telem
 recent logs, return fleet health, return anomaly lists, return causality graphs, return firmware
 survival curves, quarantine a device, and trigger rollback. The gateway API additionally exposes
 network topology, route tables, adaptive network intelligence, action plans, reachability probes,
-and external network-observation ingestion.
+external network-observation ingestion, and production readiness reports.
 
 ```mermaid
 flowchart LR

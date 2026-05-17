@@ -26,7 +26,8 @@ packages/trust
   Ed25519 identity -> dev X.509v3 certificate -> trust score -> trust state machine
 
 packages/protocol
-  native MQTT/HTTP/serial payloads -> AdapterSpec -> CanonicalEvent
+  MQTT/HTTP/serial/industrial/control-plane payloads -> AdapterSpec -> CanonicalEvent
+  ProtocolProfile catalog -> classification -> readiness controls
 
 packages/policy
   structured JSON/YAML rules -> typed AST -> simplified Rete evaluator -> safe action
@@ -111,6 +112,20 @@ observations. The control-plane adapter lets a gateway feed ARP, IGMP, DHCP, SLA
 RIP, multicast listener, or similar observations into the same canonical event model used by device
 telemetry.
 
+The public protocol layer now also includes production-safe OT and building-automation coverage:
+CoAP, Modbus TCP, Modbus RTU, OPC UA PubSub, BACnet/IP, DNP3, CAN bus, Zigbee, PROFINET, and
+EtherNet/IP gateway observations. These adapters normalize gateway-represented payloads into the
+same `CanonicalEvent` contract and attach protocol metadata such as unit ids, function codes, node
+ids, BACnet object ids, CAN arbitration ids, DNP3 point indexes, and CIP service names. The
+`ProtocolProfile` catalog records family, reliability, expected identity fields, security posture,
+known operational risks, and recommended controls for each supported protocol.
+
+The gateway also exposes a production readiness advisor. It evaluates identity configuration,
+operator access, transport security, replay controls, segmentation, protocol coverage, adaptive
+network intelligence, backend binding, and diagnostic retention. The report is available through the
+SDK and the authenticated HTTP API, making it suitable for CI gates, dashboards, and deployment
+preflight checks.
+
 After building, a standalone gateway process can be started with:
 
 ```bash
@@ -131,6 +146,7 @@ GET  /api/network/map
 GET  /api/network/routes
 GET  /api/network/intelligence
 GET  /api/network/actions
+GET  /api/readiness
 POST /api/network/probe
 POST /api/network/observe
 ```

@@ -442,6 +442,8 @@ describe('EdgeGateway production ingress', () => {
           staleNodeMs: 120_000,
           preferredRouteScore: 0.7,
           openWifiPlaintextRisk: 0.65,
+          highMulticastPacketsPerSecond: 500,
+          controlPlaneAnomalyScore: 0.8,
         },
       },
     });
@@ -559,5 +561,119 @@ describe('EdgeGateway production ingress', () => {
       status: 200,
       body: { enabled: true, topologyDigest: expect.any(Object) },
     });
+  });
+
+  it('supports industrial OT transports and exposes production readiness checks', async () => {
+    const secret = 'plc-secret';
+    const token = 'readiness-token';
+    const config = createGatewayConfig({
+      credentials: [createGatewayCredential('plc-1', 'PLC', { hmacSecret: secret })],
+      adminTokenSha256: hashGatewayAdminToken(token),
+      allowPlaintextFrom: [],
+      networkSegments: [
+        {
+          id: 'cell-1',
+          kind: 'LOCAL_LAN',
+          allowCloudEgress: false,
+          allowPeerForwarding: false,
+        },
+      ],
+    });
+    const gateway = new EdgeGateway(config);
+    const api = new GatewayHttpApi(gateway, config);
+    const unsigned: UniversalIngressEnvelope = {
+      deviceId: 'plc-1',
+      transport: 'modbus_tcp',
+      eventKind: 'SENSOR_EVENT',
+      timestamp: '2026-01-01T00:00:15.000Z',
+      sequenceId: 'plc-1',
+      payload: { capability: 'holding_registers', value: [1, 2, 3] },
+      metadata: {
+        segmentId: 'cell-1',
+        routingProtocol: 'MODBUS_GATEWAY',
+        latencyMs: 12,
+        packetLossRatio: 0,
+        reconnects: 0,
+      },
+      security: { mode: 'HMAC_SHA256', nonce: 'plc-nonce-1' },
+    };
+
+    await expect(
+      gateway.ingest({
+        ...unsigned,
+        security: { ...unsigned.security, signature: signHmacEnvelope(unsigned, secret) },
+      }),
+    ).resolves.toMatchObject({ accepted: true });
+    const readiness = await api.handle({
+      method: 'GET',
+      path: '/api/readiness',
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(gateway.routeTable('plc-1')[0]).toMatchObject({
+      protocol: 'MODBUS_GATEWAY',
+      nextHop: 'cell-1',
+    });
+    expect(readiness).toMatchObject({
+      status: 200,
+      body: {
+        supportedProtocols: expect.arrayContaining([expect.objectContaining({ id: 'modbus_tcp' })]),
+        criticalGaps: [],
+      },
+    });
+  });
+
+  it('classifies multicast, rogue DHCP, and ARP anomalies from control-plane observations', () => {
+    const config = createGatewayConfig({
+      credentials: [],
+      networkIntelligence: {
+        enabled: true,
+        mode: 'AUTO_SAFE',
+        learnEveryObservation: true,
+        actionLimit: 50,
+        thresholds: {
+          minSamples: 1,
+          highLatencyMs: 500,
+          highPacketLossRatio: 0.08,
+          highReconnects: 3,
+          latencyZScore: 3,
+          packetLossZScore: 3,
+          reconnectZScore: 3,
+          routeFlapWindowMs: 60_000,
+          routeFlapCount: 3,
+          staleNodeMs: 120_000,
+          preferredRouteScore: 0.7,
+          openWifiPlaintextRisk: 0.65,
+          highMulticastPacketsPerSecond: 100,
+          controlPlaneAnomalyScore: 0.6,
+        },
+      },
+    });
+    const gateway = new EdgeGateway(config);
+
+    const findings = gateway.observeNetworkIntelligence({
+      key: 'lan-a:control-plane',
+      layers: ['L3_IPV4', 'L3_ARP', 'CONTROL_DHCP', 'CONTROL_ROUTING'],
+      multicastPacketsPerSecond: 250,
+      controlPlaneAnomalyScore: 0.9,
+      encrypted: false,
+      metadata: {
+        rogueDhcp: true,
+        arpConflict: true,
+        dhcpServer: '192.168.1.250',
+      },
+    });
+
+    expect(findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'MULTICAST_STORM' }),
+        expect.objectContaining({ type: 'CONTROL_PLANE_ANOMALY' }),
+        expect.objectContaining({ type: 'ROGUE_DHCP' }),
+        expect.objectContaining({ type: 'ARP_SPOOFING' }),
+      ]),
+    );
+    expect(gateway.networkIntelligenceSnapshot().actions.map((action) => action.type)).toEqual(
+      expect.arrayContaining(['THROTTLE_LOW_PRIORITY', 'RAISE_OPERATOR_ALERT']),
+    );
   });
 });

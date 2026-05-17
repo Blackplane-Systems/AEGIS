@@ -162,6 +162,166 @@ export class NetworkControlPlaneAdapter extends ProtocolAdapter<Record<string, u
   }
 }
 
+/** CoAP adapter for constrained UDP resource observations and commands. */
+export class CoapMessageAdapter extends ProtocolAdapter<Record<string, unknown>> {
+  public constructor(fieldMap: FieldMap = DEFAULT_FIELD_MAP) {
+    super({
+      transport: 'coap',
+      reliability: Reliability.AT_LEAST_ONCE,
+      max_latency_ms: 750,
+      field_map: fieldMap,
+      security_level: 'ENCRYPTED',
+      buffer_capacity: 512,
+      decode_fn: decodeIndustrialPayload('coap', 'coap_resource'),
+      validate_fn: isRecordPayload,
+    });
+  }
+}
+
+/** Modbus TCP adapter for PLC register observations represented by a gateway. */
+export class ModbusTcpAdapter extends ProtocolAdapter<Record<string, unknown>> {
+  public constructor(fieldMap: FieldMap = DEFAULT_FIELD_MAP) {
+    super({
+      transport: 'modbus_tcp',
+      reliability: Reliability.AT_LEAST_ONCE,
+      max_latency_ms: 200,
+      field_map: fieldMap,
+      security_level: 'NONE',
+      buffer_capacity: 512,
+      decode_fn: decodeIndustrialPayload('modbus_tcp', 'modbus_registers'),
+      validate_fn: isRecordPayload,
+    });
+  }
+}
+
+/** Modbus RTU adapter for serial bus frames represented by an edge gateway. */
+export class ModbusRtuAdapter extends ProtocolAdapter<Record<string, unknown>> {
+  public constructor(fieldMap: FieldMap = DEFAULT_FIELD_MAP) {
+    super({
+      transport: 'modbus_rtu',
+      reliability: Reliability.AT_MOST_ONCE,
+      max_latency_ms: 500,
+      field_map: fieldMap,
+      security_level: 'NONE',
+      buffer_capacity: 256,
+      decode_fn: decodeIndustrialPayload('modbus_rtu', 'modbus_rtu_frame'),
+      validate_fn: isRecordPayload,
+    });
+  }
+}
+
+/** OPC UA PubSub adapter for DataValue-style gateway events. */
+export class OpcUaPubSubAdapter extends ProtocolAdapter<Record<string, unknown>> {
+  public constructor(fieldMap: FieldMap = DEFAULT_FIELD_MAP) {
+    super({
+      transport: 'opcua_pubsub',
+      reliability: Reliability.AT_LEAST_ONCE,
+      max_latency_ms: 250,
+      field_map: fieldMap,
+      security_level: 'MUTUAL_TLS',
+      buffer_capacity: 2048,
+      decode_fn: decodeIndustrialPayload('opcua_pubsub', 'opcua_datavalue'),
+      validate_fn: isRecordPayload,
+    });
+  }
+}
+
+/** BACnet/IP adapter for building automation object observations. */
+export class BacnetIpAdapter extends ProtocolAdapter<Record<string, unknown>> {
+  public constructor(fieldMap: FieldMap = DEFAULT_FIELD_MAP) {
+    super({
+      transport: 'bacnet_ip',
+      reliability: Reliability.AT_MOST_ONCE,
+      max_latency_ms: 500,
+      field_map: fieldMap,
+      security_level: 'NONE',
+      buffer_capacity: 1024,
+      decode_fn: decodeIndustrialPayload('bacnet_ip', 'bacnet_object'),
+      validate_fn: isRecordPayload,
+    });
+  }
+}
+
+/** CAN bus adapter for frames bridged by a local interface or microcontroller. */
+export class CanBusFrameAdapter extends ProtocolAdapter<Record<string, unknown>> {
+  public constructor(fieldMap: FieldMap = DEFAULT_FIELD_MAP) {
+    super({
+      transport: 'can_bus',
+      reliability: Reliability.AT_MOST_ONCE,
+      max_latency_ms: 25,
+      field_map: fieldMap,
+      security_level: 'NONE',
+      buffer_capacity: 2048,
+      decode_fn: decodeIndustrialPayload('can_bus', 'can_frame'),
+      validate_fn: isRecordPayload,
+    });
+  }
+}
+
+/** Zigbee adapter for coordinator-normalized cluster traffic. */
+export class ZigbeeFrameAdapter extends ProtocolAdapter<Record<string, unknown>> {
+  public constructor(fieldMap: FieldMap = DEFAULT_FIELD_MAP) {
+    super({
+      transport: 'zigbee',
+      reliability: Reliability.AT_LEAST_ONCE,
+      max_latency_ms: 1000,
+      field_map: fieldMap,
+      security_level: 'SIGNED',
+      buffer_capacity: 1024,
+      decode_fn: decodeIndustrialPayload('zigbee', 'zigbee_cluster'),
+      validate_fn: isRecordPayload,
+    });
+  }
+}
+
+/** DNP3 adapter for outstation point events represented by a gateway. */
+export class Dnp3Adapter extends ProtocolAdapter<Record<string, unknown>> {
+  public constructor(fieldMap: FieldMap = DEFAULT_FIELD_MAP) {
+    super({
+      transport: 'dnp3',
+      reliability: Reliability.AT_LEAST_ONCE,
+      max_latency_ms: 500,
+      field_map: fieldMap,
+      security_level: 'SIGNED',
+      buffer_capacity: 1024,
+      decode_fn: decodeIndustrialPayload('dnp3', 'dnp3_point'),
+      validate_fn: isRecordPayload,
+    });
+  }
+}
+
+/** PROFINET observation adapter for passive IO or DCP metadata. */
+export class ProfinetObservationAdapter extends ProtocolAdapter<Record<string, unknown>> {
+  public constructor(fieldMap: FieldMap = DEFAULT_FIELD_MAP) {
+    super({
+      transport: 'profinet',
+      reliability: Reliability.AT_LEAST_ONCE,
+      max_latency_ms: 100,
+      field_map: fieldMap,
+      security_level: 'NONE',
+      buffer_capacity: 1024,
+      decode_fn: decodeIndustrialPayload('profinet', 'profinet_io'),
+      validate_fn: isRecordPayload,
+    });
+  }
+}
+
+/** EtherNet/IP adapter for CIP object events represented by a gateway. */
+export class EthernetIpAdapter extends ProtocolAdapter<Record<string, unknown>> {
+  public constructor(fieldMap: FieldMap = DEFAULT_FIELD_MAP) {
+    super({
+      transport: 'ethernet_ip',
+      reliability: Reliability.AT_LEAST_ONCE,
+      max_latency_ms: 250,
+      field_map: fieldMap,
+      security_level: 'NONE',
+      buffer_capacity: 1024,
+      decode_fn: decodeIndustrialPayload('ethernet_ip', 'cip_object'),
+      validate_fn: isRecordPayload,
+    });
+  }
+}
+
 function mqttReliability(qos: 0 | 1 | 2): Reliability {
   if (qos === 0) {
     return Reliability.AT_MOST_ONCE;
@@ -225,8 +385,110 @@ function decodeControlPlaneObservation(raw: unknown, observerId: string): Record
   };
 }
 
+function decodeIndustrialPayload(protocol: string, capability: string) {
+  return (raw: unknown): Record<string, unknown> => {
+    const message = decodeFlexibleRecord(raw);
+    const deviceId =
+      stringValue(
+        message.deviceId ??
+          message.device_id ??
+          message.unitId ??
+          message.slaveId ??
+          message.nodeId ??
+          message.publisherId ??
+          message.deviceInstance ??
+          message.arbitrationId ??
+          message.ieeeAddress ??
+          message.stationName,
+      ) ?? `${protocol}-${randomId()}`;
+    const timestamp = message.timestamp ?? new Date().toISOString();
+    const sequenceId =
+      message.sequenceId ??
+      message.sequence_id ??
+      message.transactionId ??
+      message.invokeId ??
+      message.counter ??
+      message.id ??
+      randomUUID();
+    return {
+      deviceId,
+      timestamp,
+      sequenceId,
+      payload: {
+        capability: message.capability ?? capability,
+        value:
+          message.value ??
+          message.registers ??
+          message.points ??
+          message.data ??
+          message.payload ??
+          message.frame,
+        metadata: compactRecord({
+          protocol,
+          path: message.path,
+          method: message.method,
+          unitId: message.unitId,
+          slaveId: message.slaveId,
+          functionCode: message.functionCode,
+          register: message.register,
+          nodeId: message.nodeId,
+          publisherId: message.publisherId,
+          objectId: message.objectId,
+          deviceInstance: message.deviceInstance,
+          arbitrationId: message.arbitrationId ?? message.canId,
+          clusterId: message.clusterId,
+          endpoint: message.endpoint,
+          outstation: message.outstation,
+          pointIndex: message.pointIndex,
+          stationName: message.stationName,
+          service: message.service,
+          sourceAddress: message.sourceAddress,
+          destinationAddress: message.destinationAddress,
+          byteLength: message.byteLength,
+          ...(message.metadata !== null &&
+          typeof message.metadata === 'object' &&
+          !Array.isArray(message.metadata)
+            ? (message.metadata as Record<string, unknown>)
+            : {}),
+        }),
+      },
+    };
+  };
+}
+
+function decodeFlexibleRecord(raw: unknown): Record<string, unknown> {
+  if (Buffer.isBuffer(raw)) {
+    const text = raw.toString('utf8').trim();
+    if (text.startsWith('{') || text.startsWith('[')) {
+      return decodeJson(text);
+    }
+    return {
+      frame: raw.toString('hex'),
+      byteLength: raw.byteLength,
+    };
+  }
+  if (typeof raw === 'string') {
+    const text = raw.trim();
+    if (text.startsWith('{') || text.startsWith('[')) {
+      return decodeJson(text);
+    }
+    return { frame: text, byteLength: Buffer.byteLength(text) };
+  }
+  return decodeJson(raw);
+}
+
+function compactRecord(value: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(value).filter((entry) => entry[1] !== undefined));
+}
+
 function stringValue(value: unknown): string | undefined {
-  return typeof value === 'string' && value.length > 0 ? value : undefined;
+  if (typeof value === 'string' && value.length > 0) {
+    return value;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value);
+  }
+  return undefined;
 }
 
 function randomId(): string {

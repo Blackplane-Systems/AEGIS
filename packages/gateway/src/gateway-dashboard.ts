@@ -88,7 +88,7 @@ export function renderGatewayDashboard(model: GatewayDashboardModel): string {
     .subtle { color: var(--muted); font-size: 13px; margin-top: 6px; }
     .grid {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
       gap: 14px;
     }
     .wide-grid {
@@ -217,13 +217,14 @@ export function renderGatewayDashboard(model: GatewayDashboardModel): string {
       ${metricCard('Routes', digest.routes)}
       ${metricCard('Findings', model.intelligence.findings.length)}
       ${metricCard('Actions', model.intelligence.actions.length)}
+      ${metricCard('Readiness', Number(model.health.readinessScore ?? 0))}
     </section>
 
     <section class="panel">
       <h2>Runtime Flow</h2>
       <div class="flow">
-        ${flowStep('Ingress', 'MQTT, HTTP, BLE, LoRa, ESP-NOW, serial, WebSocket, UDP broadcast')}
-        ${flowStep('Normalize', 'Aggregator and direct payloads become canonical events')}
+        ${flowStep('Ingress', 'IoT, fieldbus, OT, building automation, wireless mesh, and control-plane signals')}
+        ${flowStep('Normalize', 'Direct, aggregator, and industrial gateway payloads become canonical events')}
         ${flowStep('Learn', 'Latency, loss, reconnects, routing, segments, identity paths')}
         ${flowStep('Decide', 'Route score, blocker class, safe fanout and throttling')}
         ${flowStep('Act', 'Local-first hold, probe, throttle, alert, and operator APIs')}
